@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>CLAW CATCHER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --pink: #ff2f8e;
+    --cyan: #29d3ff;
+    --yellow: #ffd23f;
+  }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden; overscroll-behavior: none;
+    background: #0b0620;
+    font-family: "DotGothic16", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    touch-action: none;
+    position: fixed; inset: 0;
+  }
+  #game { position: absolute; inset: 0; }
+  canvas { display: block; }
+
+  #vignette {
+    position: absolute; inset: 0; pointer-events: none; z-index: 3;
+    background: radial-gradient(ellipse at 50% 42%, transparent 55%, rgba(5, 0, 20, .55) 100%);
+  }
+
+  /* ---- HUD ---- */
+  #hud {
+    position: absolute; top: calc(env(safe-area-inset-top, 0px) + 8px);
+    left: 0; right: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 7px;
+    pointer-events: none; z-index: 5;
+  }
+  #logo {
+    font-size: clamp(17px, 5vw, 24px); letter-spacing: 3px; color: #fff;
+    text-shadow: 0 0 6px var(--pink), 0 0 16px var(--pink), 0 0 30px var(--pink);
+    animation: logoGlow 2.4s ease-in-out infinite;
+  }
+  @keyframes logoGlow {
+    50% { text-shadow: 0 0 4px var(--cyan), 0 0 14px var(--cyan), 0 0 28px var(--cyan); }
+  }
+  #counters { display: flex; gap: 10px; }
+  .panel {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(5, 0, 22, .85);
+    border: 2px solid var(--pink); border-radius: 10px;
+    padding: 4px 14px;
+    box-shadow: 0 0 12px rgba(255, 47, 142, .55), inset 0 0 10px rgba(255, 47, 142, .18);
+  }
+  .panel.cyan { border-color: var(--cyan); box-shadow: 0 0 12px rgba(41, 211, 255, .55), inset 0 0 10px rgba(41, 211, 255, .18); }
+  .panel .lbl { font-size: 11px; color: var(--cyan); letter-spacing: 2px; }
+  .panel.cyan .lbl { color: var(--pink); }
+  .panel .num {
+    font-size: 24px; color: var(--yellow); min-width: 2ch; text-align: right;
+    text-shadow: 0 0 8px rgba(255, 210, 63, .9);
+  }
+
+  /* ---- message ---- */
+  #msg {
+    position: absolute; top: 32%; left: 0; right: 0;
+    text-align: center; z-index: 6; pointer-events: none;
+    font-size: clamp(34px, 10vw, 64px); letter-spacing: 2px;
+    color: var(--yellow);
+    text-shadow: 0 0 14px rgba(255, 210, 63, .9), 0 4px 0 #6b3f00, 0 8px 16px rgba(0,0,0,.6);
+    opacity: 0; transform: scale(.5) rotate(-4deg); transition: all .16s cubic-bezier(.2, 2.2, .5, 1);
+  }
+  #msg.show { opacity: 1; transform: scale(1) rotate(0deg); }
+  #msg.win {
+    background: linear-gradient(90deg, var(--yellow), var(--pink), var(--cyan), var(--yellow));
+    background-size: 300% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: none;
+    filter: drop-shadow(0 0 12px rgba(255, 47, 142, .8)) drop-shadow(0 4px 8px rgba(0,0,0,.7));
+    animation: rainbow 1.2s linear infinite;
+  }
+  @keyframes rainbow { to { background-position: 300% 0; } }
+
+  #hint {
+    position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 138px);
+    left: 0; right: 0; text-align: center; z-index: 5; pointer-events: none;
+    color: #fff; font-size: 16px; letter-spacing: 2px;
+    text-shadow: 0 0 8px var(--cyan), 0 2px 6px rgba(0,0,0,.9);
+    animation: blink 1.1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: .25; } }
+
+  /* ---- controls ---- */
+  #controls {
+    position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    left: 0; right: 0;
+    display: flex; justify-content: center; align-items: center; gap: 24px;
+    z-index: 10;
+  }
+  .btn {
+    width: 96px; height: 96px; border-radius: 50%;
+    border: 5px solid #0a0518; outline: none;
+    color: #fff; font-family: inherit;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    touch-action: none; cursor: pointer;
+    transition: transform .06s, filter .15s;
+    box-shadow:
+      0 0 0 4px #2a1a45,
+      0 7px 0 4px #120a28,
+      0 12px 24px rgba(0,0,0,.6),
+      inset 0 4px 8px rgba(255,255,255,.5),
+      inset 0 -6px 10px rgba(0,0,0,.35);
+  }
+  .btn .arrow { font-size: 36px; line-height: 1; text-shadow: 0 2px 3px rgba(0,0,0,.5); }
+  .btn .label { font-size: 13px; margin-top: 2px; letter-spacing: 2px; text-shadow: 0 2px 3px rgba(0,0,0,.5); }
+  .btn:active, .btn.pressed {
+    transform: translateY(5px) scale(.97);
+    box-shadow:
+      0 0 0 4px #2a1a45,
+      0 2px 0 4px #120a28,
+      0 5px 12px rgba(0,0,0,.6),
+      inset 0 4px 8px rgba(255,255,255,.5),
+      inset 0 -6px 10px rgba(0,0,0,.35);
+  }
+  .btn:disabled { filter: grayscale(.9) brightness(.45); pointer-events: none; animation: none; }
+  #btnX { background: radial-gradient(circle at 34% 28%, #ffa5cd, #ff2f8e 55%, #99114f); }
+  #btnX:not(:disabled) { animation: pulsePink 1.5s ease-in-out infinite; }
+  #btnZ { background: radial-gradient(circle at 34% 28%, #9fe2ff, #29a5ff 55%, #0e4e9e); }
+  #btnZ:not(:disabled) { animation: pulseCyan 1.5s ease-in-out infinite; }
+  @keyframes pulsePink {
+    50% { box-shadow: 0 0 0 4px #2a1a45, 0 7px 0 4px #120a28, 0 0 30px 6px rgba(255,47,142,.7), inset 0 4px 8px rgba(255,255,255,.5), inset 0 -6px 10px rgba(0,0,0,.35); }
+  }
+  @keyframes pulseCyan {
+    50% { box-shadow: 0 0 0 4px #2a1a45, 0 7px 0 4px #120a28, 0 0 30px 6px rgba(41,211,255,.7), inset 0 4px 8px rgba(255,255,255,.5), inset 0 -6px 10px rgba(0,0,0,.35); }
+  }
+  #btnCoin {
+    height: 56px; border-radius: 12px; padding: 0 18px;
+    border: 3px solid #6b4a00; color: #4a2c00; font-family: inherit; font-size: 15px;
+    letter-spacing: 1px;
+    background: linear-gradient(#ffe680, #ffb930 60%, #e09a10);
+    box-shadow: 0 6px 0 #8a5f00, 0 10px 18px rgba(0,0,0,.55), inset 0 2px 4px rgba(255,255,255,.7);
+    touch-action: none; cursor: pointer;
+    transition: transform .06s;
+  }
+  #btnCoin:active { transform: translateY(4px); box-shadow: 0 2px 0 #8a5f00, inset 0 2px 4px rgba(255,255,255,.7); }
+  #btnCoin.attention { animation: coinBlink .8s steps(2) infinite; }
+  @keyframes coinBlink { 50% { filter: brightness(1.5); } }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="vignette"></div>
+
+<div id="hud">
+  <div id="logo">★ CLAW CATCHER ★</div>
+  <div id="counters">
+    <div class="panel"><span class="lbl">CREDITS</span><span class="num" id="plays">05</span></div>
+    <div class="panel cyan"><span class="lbl">PRIZES</span><span class="num" id="wins">00</span></div>
+  </div>
+</div>
+
+<div id="msg"></div>
+<div id="hint">→ ボタンで スタート!</div>
+
+<div id="controls">
+  <button id="btnCoin">🪙 INSERT COIN</button>
+  <button id="btnX" class="btn"><span class="arrow">→</span><span class="label">ヨコ</span></button>
+  <button id="btnZ" class="btn" disabled><span class="arrow">↑</span><span class="label">オク</span></button>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+
+/* ================= 基本設定 ================= */
+const FIELD = 2.0;          // 内寸の半分
+const WALL_H = 4.0;
+const RAIL_Y = 3.7;
+const CLAW_TOP_Y = 3.0;     // アーム待機高さ
+const CLAW_BOTTOM_Y = 0.88; // 下降の最下点 (指先が景品の下に回り込める深さ)
+// 景品落とし口 (手前左): x [-2,-0.9], z [0.9,2]
+const HOLE = { x0: -2.0, x1: -0.9, z0: 0.9, z1: 2.0 };
+const HOME = { x: (HOLE.x0 + HOLE.x1) / 2, z: (HOLE.z0 + HOLE.z1) / 2 };
+const X_MAX = 1.6, Z_MIN = -1.6;
+const MOVE_SPEED = 1.15, DROP_SPEED = 1.4, LIFT_SPEED = 1.2, RETURN_SPEED = 1.1;
+const PRIZE_COUNT = 7;
+
+let plays = 5, wins = 0;
+
+/* ================= three.js ================= */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.getElementById('game').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0620);
+scene.fog = new THREE.Fog(0x0b0620, 11, 26);
+
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 60);
+function layout() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  const a = Math.max(0.55, Math.min(camera.aspect, 1.4));
+  camera.position.set(0, 5.4, 7.6 / a * (a < 1 ? 0.92 : 1));
+  camera.fov = a < 1 ? Math.min(78, 55 / (a * 1.18)) : 55;
+  camera.lookAt(0, 1.55, 0);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', layout);
+
+scene.add(new THREE.HemisphereLight(0xcdd7ff, 0x402a55, 0.85));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(3.5, 9, 4.5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.left = -4; sun.shadow.camera.right = 4;
+sun.shadow.camera.top = 5; sun.shadow.camera.bottom = -4;
+scene.add(sun);
+const fill = new THREE.PointLight(0xff9ecb, 12, 12);
+fill.position.set(0, 3.6, 2.5);
+scene.add(fill);
+
+/* ================= cannon-es ================= */
+const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+world.broadphase = new CANNON.SAPBroadphase(world);
+world.solver.iterations = 14;
+const matGround = new CANNON.Material('ground');
+const matPrize = new CANNON.Material('prize');
+const matClaw = new CANNON.Material('claw');
+world.addContactMaterial(new CANNON.ContactMaterial(matGround, matPrize, { friction: 0.45, restitution: 0.25 }));
+world.addContactMaterial(new CANNON.ContactMaterial(matPrize, matPrize, { friction: 0.4, restitution: 0.2 }));
+world.addContactMaterial(new CANNON.ContactMaterial(matClaw, matPrize, {
+  friction: 0.9, restitution: 0,
+  contactEquationStiffness: 1e7, contactEquationRelaxation: 4,
+}));
+// 衝突グループ: 指は景品だけと衝突させる
+const G_STATIC = 1, G_PRIZE = 2, G_CLAW = 4;
+
+function staticBox(cx, cy, cz, sx, sy, sz) {
+  const body = new CANNON.Body({
+    type: CANNON.Body.STATIC, material: matGround,
+    shape: new CANNON.Box(new CANNON.Vec3(sx / 2, sy / 2, sz / 2)),
+  });
+  body.position.set(cx, cy, cz);
+  world.addBody(body);
+  return body;
+}
+
+/* ================= 筐体 ================= */
+const machine = new THREE.Group();
+scene.add(machine);
+
+const carpetMat = new THREE.MeshStandardMaterial({ color: 0x2fae6b, roughness: 0.95 });
+const frameMat = new THREE.MeshStandardMaterial({ color: 0xff4f92, roughness: 0.35, metalness: 0.3 });
+const darkMat = new THREE.MeshStandardMaterial({ color: 0x241238, roughness: 0.8 });
+
+function box(mat, cx, cy, cz, sx, sy, sz, shadow = true) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+  m.position.set(cx, cy, cz);
+  m.castShadow = shadow; m.receiveShadow = true;
+  machine.add(m);
+  return m;
+}
+
+// 床 (穴を除いた2枚) — 物理も同形状
+box(carpetMat, 0, -0.25, (HOLE.z0 - FIELD) / 2, FIELD * 2, 0.5, HOLE.z0 + FIELD);
+staticBox(0, -0.25, (HOLE.z0 - FIELD) / 2, FIELD * 2, 0.5, HOLE.z0 + FIELD);
+box(carpetMat, (HOLE.x1 + FIELD) / 2, -0.25, (HOLE.z0 + FIELD) / 2, FIELD - HOLE.x1, 0.5, FIELD - HOLE.z0);
+staticBox((HOLE.x1 + FIELD) / 2, -0.25, (HOLE.z0 + FIELD) / 2, FIELD - HOLE.x1, 0.5, FIELD - HOLE.z0);
+
+// 落とし口のバリア (黄色い縁)
+const bh = 0.55, bt = 0.1;
+const rimMat = new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.4 });
+box(rimMat, HOLE.x1, bh / 2, (HOLE.z0 + HOLE.z1) / 2, bt, bh, HOLE.z1 - HOLE.z0 + bt);
+staticBox(HOLE.x1, bh / 2, (HOLE.z0 + HOLE.z1) / 2, bt, bh, HOLE.z1 - HOLE.z0 + bt);
+box(rimMat, (HOLE.x0 + HOLE.x1) / 2, bh / 2, HOLE.z0, HOLE.x1 - HOLE.x0, bh, bt);
+staticBox((HOLE.x0 + HOLE.x1) / 2, bh / 2, HOLE.z0, HOLE.x1 - HOLE.x0, bh, bt);
+
+// 落とし口の内壁 (下に続く暗い筒)
+const holeW = HOLE.x1 - HOLE.x0, holeD = HOLE.z1 - HOLE.z0;
+
+// 見えない壁: 獲得口には真上からしか入れない (バリア越え・回り込み・すり抜け防止)
+const SHAFT_TOP = 1.7;
+staticBox(HOLE.x1, SHAFT_TOP / 2, (HOLE.z0 + HOLE.z1) / 2, bt, SHAFT_TOP, holeD + 0.4);          // 右 (内側)
+staticBox((HOLE.x0 + HOLE.x1) / 2, SHAFT_TOP / 2, HOLE.z0, holeW + 0.4, SHAFT_TOP, bt);          // 奥 (内側)
+staticBox(HOLE.x0 - 0.06, SHAFT_TOP / 2, (HOLE.z0 + HOLE.z1) / 2, 0.12, SHAFT_TOP, holeD + 0.4); // 左 (ガラス沿い)
+staticBox((HOLE.x0 + HOLE.x1) / 2, SHAFT_TOP / 2, HOLE.z1 + 0.06, holeW + 0.4, SHAFT_TOP, 0.12); // 手前 (ガラス沿い)
+box(darkMat, HOLE.x0 + holeW / 2, -0.9, HOLE.z0 - 0.02, holeW, 1.8, 0.04, false);
+box(darkMat, HOLE.x0 + holeW / 2, -0.9, HOLE.z1 + 0.02, holeW, 1.8, 0.04, false);
+box(darkMat, HOLE.x0 - 0.02, -0.9, HOLE.z0 + holeD / 2, 0.04, 1.8, holeD, false);
+box(darkMat, HOLE.x1 + 0.02, -0.9, HOLE.z0 + holeD / 2, 0.04, 1.8, holeD, false);
+
+// 土台
+box(darkMat, 0, -1.0, 0, FIELD * 2 + 0.6, 1.5, FIELD * 2 + 0.6);
+box(frameMat, 0, -1.78, 0, FIELD * 2 + 0.8, 0.16, FIELD * 2 + 0.8);
+// GET口 (正面パネル)
+{
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#0a0518'; g.fillRect(0, 0, 256, 128);
+  g.strokeStyle = '#ffd23f'; g.lineWidth = 6; g.strokeRect(6, 6, 244, 116);
+  g.fillStyle = '#ffd23f'; g.font = '900 60px sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.shadowColor = '#ffd23f'; g.shadowBlur = 16;
+  g.fillText('GET!', 128, 66);
+  const t = new THREE.CanvasTexture(c);
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.5), new THREE.MeshBasicMaterial({ map: t }));
+  p.position.set(HOME.x, -0.9, FIELD + 0.31);
+  machine.add(p);
+}
+
+// ガラス壁 (見た目)
+const glassMat = new THREE.MeshPhysicalMaterial({
+  color: 0xbfe4ff, transmission: 0.92, transparent: true, opacity: 0.22,
+  roughness: 0.05, metalness: 0, side: THREE.DoubleSide, depthWrite: false,
+});
+function glass(cx, cy, cz, sx, sy, sz) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), glassMat);
+  m.position.set(cx, cy, cz);
+  machine.add(m);
+}
+glass(0, WALL_H / 2, -FIELD - 0.03, FIELD * 2, WALL_H, 0.06);
+glass(-FIELD - 0.03, WALL_H / 2, 0, 0.06, WALL_H, FIELD * 2);
+glass(FIELD + 0.03, WALL_H / 2, 0, 0.06, WALL_H, FIELD * 2);
+glass(0, WALL_H / 2, FIELD + 0.03, FIELD * 2, WALL_H, 0.06);
+// ガラス壁 (物理)
+staticBox(0, WALL_H / 2, -FIELD - 0.1, FIELD * 2 + 0.4, WALL_H, 0.2);
+staticBox(0, WALL_H / 2, FIELD + 0.1, FIELD * 2 + 0.4, WALL_H, 0.2);
+staticBox(-FIELD - 0.1, WALL_H / 2, 0, 0.2, WALL_H, FIELD * 2 + 0.4);
+staticBox(FIELD + 0.1, WALL_H / 2, 0, 0.2, WALL_H, FIELD * 2 + 0.4);
+
+// 支柱と上部フレーム
+for (const [px, pz] of [[-FIELD, -FIELD], [FIELD, -FIELD], [-FIELD, FIELD], [FIELD, FIELD]]) {
+  box(frameMat, px * 1.02, WALL_H / 2, pz * 1.02, 0.18, WALL_H, 0.18);
+}
+box(frameMat, 0, WALL_H + 0.1, -FIELD, FIELD * 2 + 0.4, 0.22, 0.2);
+box(frameMat, 0, WALL_H + 0.1, FIELD, FIELD * 2 + 0.4, 0.22, 0.2);
+box(frameMat, -FIELD, WALL_H + 0.1, 0, 0.2, 0.22, FIELD * 2);
+box(frameMat, FIELD, WALL_H + 0.1, 0, 0.2, 0.22, FIELD * 2);
+
+// 手前の支柱のネオンライン
+const neonStripMat = new THREE.MeshBasicMaterial({ color: 0x29d3ff });
+for (const px of [-FIELD, FIELD]) {
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(0.05, WALL_H - 0.3, 0.05), neonStripMat);
+  strip.position.set(px * 1.02, WALL_H / 2, FIELD * 1.02 + 0.1);
+  machine.add(strip);
+}
+
+// 電飾看板
+{
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 160;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 1024, 0);
+  grad.addColorStop(0, '#ff2f8e'); grad.addColorStop(0.5, '#8a2fff'); grad.addColorStop(1, '#29a5ff');
+  g.fillStyle = grad; g.fillRect(0, 0, 1024, 160);
+  g.fillStyle = '#fff'; g.font = '900 88px sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.shadowColor = '#fff'; g.shadowBlur = 14;
+  g.fillText('CLAW CATCHER', 512, 86);
+  const t = new THREE.CanvasTexture(c);
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 0.66), new THREE.MeshBasicMaterial({ map: t }));
+  p.position.set(0, WALL_H + 0.55, FIELD + 0.11);
+  machine.add(p);
+}
+
+// 看板上の電球 (色が流れる)
+const bulbMats = [
+  new THREE.MeshBasicMaterial({ color: 0xff2f8e }),
+  new THREE.MeshBasicMaterial({ color: 0xffd23f }),
+  new THREE.MeshBasicMaterial({ color: 0x29d3ff }),
+];
+const bulbs = [];
+const bulbGeo = new THREE.SphereGeometry(0.055, 10, 8);
+for (let i = 0; i < 13; i++) {
+  const b = new THREE.Mesh(bulbGeo, bulbMats[i % 3]);
+  b.position.set(-1.95 + i * 0.325, WALL_H + 0.98, FIELD + 0.12);
+  machine.add(b);
+  bulbs.push(b);
+}
+
+/* ================= 背景 (ゲームセンター) ================= */
+// アーケードカーペットの床
+{
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#150a2e'; g.fillRect(0, 0, 256, 256);
+  const cols = ['#ff2f8e', '#29d3ff', '#ffd23f', '#7dff8a', '#c08fff'];
+  for (let i = 0; i < 70; i++) {
+    const col = cols[i % cols.length];
+    const x = Math.random() * 256, y = Math.random() * 256;
+    g.globalAlpha = 0.4 + Math.random() * 0.3;
+    g.fillStyle = col; g.strokeStyle = col; g.lineWidth = 2.5;
+    const kind = i % 3;
+    if (kind === 0) {
+      g.beginPath(); g.arc(x, y, 2.5 + Math.random() * 3.5, 0, Math.PI * 2); g.fill();
+    } else if (kind === 1) {
+      const s = 5 + Math.random() * 6;
+      g.beginPath(); g.moveTo(x, y - s); g.lineTo(x + s, y + s); g.lineTo(x - s, y + s); g.closePath(); g.fill();
+    } else {
+      g.beginPath(); g.moveTo(x, y);
+      for (let k = 1; k <= 3; k++) g.lineTo(x + k * 7, y + (k % 2 ? -6 : 6));
+      g.stroke();
+    }
+  }
+  g.globalAlpha = 1;
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(7, 7);
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(60, 60),
+    new THREE.MeshStandardMaterial({ map: t, roughness: 0.95 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -1.86;
+  floor.receiveShadow = true;
+  scene.add(floor);
+}
+
+// ネオンサインを作るヘルパー
+function neonSign(text, color, w, h) {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 160;
+  const g = c.getContext('2d');
+  g.font = '900 84px sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.strokeStyle = color; g.lineWidth = 4;
+  g.shadowColor = color; g.shadowBlur = 26;
+  g.strokeText(text, 256, 82);
+  g.shadowBlur = 8;
+  g.fillStyle = '#fff';
+  g.fillText(text, 256, 82);
+  const t = new THREE.CanvasTexture(c);
+  const mat = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  scene.add(m);
+  return m;
+}
+const signs = [];
+signs.push(Object.assign(neonSign('GAME', '#ff2f8e', 3.4, 1.05), { userData: { phase: 0 } }));
+signs[0].position.set(-5.2, 3.4, -6.5);
+signs[0].rotation.y = 0.45;
+signs.push(Object.assign(neonSign('24H OPEN', '#29d3ff', 3.6, 1.1), { userData: { phase: 2.4 } }));
+signs[1].position.set(5.4, 2.6, -6.5);
+signs[1].rotation.y = -0.45;
+signs.push(Object.assign(neonSign('★ PRIZE ★', '#ffd23f', 3.2, 1.0), { userData: { phase: 4.1 } }));
+signs[2].position.set(0, 6.1, -8);
+
+// 背景のネオンリング
+const ringDecos = [];
+for (const [x, y, z, col, s] of [
+  [-4.6, 1.2, -5.5, 0xff2f8e, 0.9],
+  [4.8, 4.6, -6, 0x7dff8a, 0.7],
+  [-3.2, 5.6, -7.5, 0x29d3ff, 1.1],
+]) {
+  const r = new THREE.Mesh(
+    new THREE.TorusGeometry(s, 0.06, 10, 40),
+    new THREE.MeshBasicMaterial({ color: col })
+  );
+  r.position.set(x, y, z);
+  scene.add(r);
+  ringDecos.push(r);
+}
+
+// 星屑 (浮遊ドット)
+{
+  const N = 260;
+  const pos = new Float32Array(N * 3);
+  const col = new Float32Array(N * 3);
+  const palette = [new THREE.Color(0xff2f8e), new THREE.Color(0x29d3ff), new THREE.Color(0xffd23f), new THREE.Color(0xffffff)];
+  for (let i = 0; i < N; i++) {
+    const r = 9 + Math.random() * 12;
+    const a = Math.random() * Math.PI * 2;
+    pos[i * 3] = Math.cos(a) * r;
+    pos[i * 3 + 1] = -1 + Math.random() * 13;
+    pos[i * 3 + 2] = Math.sin(a) * r - 3;
+    const c = palette[Math.floor(Math.random() * palette.length)];
+    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const stars = new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 0.09, vertexColors: true, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  scene.add(stars);
+  window.__stars = stars;
+}
+
+/* ================= クレーン ================= */
+const clawMetal = new THREE.MeshStandardMaterial({ color: 0xd8dce6, roughness: 0.25, metalness: 0.9 });
+const clawRed = new THREE.MeshStandardMaterial({ color: 0xff3b6b, roughness: 0.35, metalness: 0.4 });
+
+const beam = new THREE.Mesh(new THREE.BoxGeometry(FIELD * 2 + 0.3, 0.14, 0.2), clawMetal);
+beam.castShadow = true;
+scene.add(beam);
+const trolley = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.36), clawRed);
+trolley.castShadow = true;
+scene.add(trolley);
+const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 8), darkMat);
+scene.add(rope);
+
+const claw = new THREE.Group();
+scene.add(claw);
+const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.22, 0.26, 20), clawRed);
+hub.castShadow = true;
+claw.add(hub);
+const hubTop = new THREE.Mesh(new THREE.SphereGeometry(0.17, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), clawRed);
+hubTop.position.y = 0.13;
+claw.add(hubTop);
+
+// 指: 3節の関節式アーム (曲げ角は固定で、付け根の1軸だけが開閉する = 1指1剛体)
+const SEG_LEN = 0.24, BEND = -0.38;
+const FINGER_DIMS = [[0.055, 0.105], [0.048, 0.09], [0.04, 0.075]]; // [厚み, 幅]
+
+function makeFinger() {
+  const pivot = new THREE.Group();
+  let parent = pivot;
+  for (let k = 0; k < 3; k++) {
+    const joint = new THREE.Group();
+    if (k > 0) { joint.position.y = -SEG_LEN; joint.rotation.z = BEND; }
+    const [t, w] = FINGER_DIMS[k];
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(t, SEG_LEN + 0.02, w), clawMetal);
+    seg.position.y = -SEG_LEN / 2;
+    seg.castShadow = true;
+    joint.add(seg);
+    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(w * 0.55, 10, 8), clawMetal);
+    knuckle.castShadow = true;
+    joint.add(knuckle);
+    parent.add(joint);
+    parent = joint;
+  }
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.15, 10), clawMetal);
+  tip.position.y = -SEG_LEN - 0.055;
+  tip.rotation.z = Math.PI;
+  tip.castShadow = true;
+  parent.add(tip);
+  return pivot;
+}
+
+const fingers = [];
+for (let i = 0; i < 3; i++) {
+  const hinge = new THREE.Group();
+  hinge.rotation.y = (i / 3) * Math.PI * 2;
+  const pivot = makeFinger();
+  pivot.position.set(0.16, -0.1, 0);
+  hinge.add(pivot);
+  claw.add(hinge);
+  fingers.push(pivot);
+}
+
+const FINGER_CLOSED = 0.22, FINGER_OPEN = 0.95;
+const fingerOpen = [0, 0, 0];             // 0=閉 1=開 (通常は閉じている)
+let fingerTouched = [false, false, false];
+let fingerDepth = [0, 0, 0];              // 景品への最大めり込み深さ
+
+// 各セグメントのピボット座標系での配置 (曲げ角は固定なので事前計算)
+const FINGER_SEGS = [];
+{
+  let ang = 0, px = 0, py = 0;
+  for (let k = 0; k < 3; k++) {
+    if (k > 0) { px += Math.sin(ang) * SEG_LEN; py += -Math.cos(ang) * SEG_LEN; ang += BEND; }
+    FINGER_SEGS.push({ cx: px + Math.sin(ang) * SEG_LEN / 2, cy: py - Math.cos(ang) * SEG_LEN / 2, ang });
+  }
+}
+
+// クロー全体をひとつの動体 (ハブ+指9ボックスの複合形状) にして、ロープで吊るす。
+// 景品にぶつかればクロー自体が押し返され、山に乗れば浮く
+const clawBody = new CANNON.Body({
+  mass: 3, material: matClaw,
+  collisionFilterGroup: G_CLAW, collisionFilterMask: G_PRIZE,
+  fixedRotation: true, linearDamping: 0.05,
+});
+clawBody.addShape(new CANNON.Sphere(0.2)); // ハブ (景品が上へ抜けないように)
+for (let i = 0; i < 3; i++) {
+  for (let k = 0; k < 3; k++) {
+    const [t, w] = FINGER_DIMS[k];
+    const sh = new CANNON.Box(new CANNON.Vec3(t / 2, (SEG_LEN + 0.02) / 2, w / 2));
+    sh.fingerIndex = i; // 接触検出でどの指かを知るため
+    clawBody.addShape(sh);
+  }
+}
+clawBody.position.set(HOME.x, CLAW_TOP_Y, HOME.z);
+world.addBody(clawBody);
+
+// 指の開閉 = クロー剛体内のシェイプ配置を毎フレーム更新
+const _qy = new CANNON.Quaternion(), _qz = new CANNON.Quaternion();
+function updateClawShapes() {
+  for (let i = 0; i < 3; i++) {
+    const yaw = (i / 3) * Math.PI * 2;
+    const cosYaw = Math.cos(yaw), sinYaw = Math.sin(yaw);
+    const theta = FINGER_CLOSED + (FINGER_OPEN - FINGER_CLOSED) * fingerOpen[i];
+    const ct = Math.cos(theta), st = Math.sin(theta);
+    _qy.setFromAxisAngle(CANNON.Vec3.UNIT_Y, yaw);
+    for (let k = 0; k < 3; k++) {
+      const s = FINGER_SEGS[k];
+      const lx = 0.16 + s.cx * ct - s.cy * st; // ヒンジ座標系での位置
+      const ly = -0.1 + s.cx * st + s.cy * ct;
+      const idx = 1 + i * 3 + k;
+      clawBody.shapeOffsets[idx].set(lx * cosYaw, ly, -lx * sinYaw);
+      _qz.setFromAxisAngle(CANNON.Vec3.UNIT_Z, theta + s.ang);
+      _qy.mult(_qz, clawBody.shapeOrientations[idx]);
+    }
+  }
+  clawBody.updateBoundingRadius();
+  clawBody.aabbNeedsUpdate = true;
+}
+updateClawShapes();
+
+// ロープ: ばね+減衰。引っ張りにしか効かないので、山に乗り上げるとたるんでクローが浮く
+const _ropeF = new CANNON.Vec3();
+const _gap = new CANNON.Vec3();
+function applyRopeForce() {
+  const b = clawBody;
+  const fx = (clawPos.x - b.position.x) * 90 - b.velocity.x * 12;
+  const fz = (clawPos.z - b.position.z) * 90 - b.velocity.z * 12;
+  const stretch = clawPos.y - b.position.y; // 正 = 目標より下 → ロープが伸びて引き上げ
+  const fy = stretch > 0 ? stretch * 600 - b.velocity.y * 30 : -b.velocity.y * 3;
+  b.applyForce(_ropeF.set(fx, fy, fz));
+}
+
+// 照準リング (床)
+const ring = new THREE.Mesh(
+  new THREE.RingGeometry(0.3, 0.4, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.28, side: THREE.DoubleSide })
+);
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = 0.02;
+scene.add(ring);
+
+const clawPos = new THREE.Vector3(HOME.x, CLAW_TOP_Y, HOME.z); // 制御目標 (トロリー位置とロープ長)
+const _ropeTop = new THREE.Vector3(), _ropeDir = new THREE.Vector3();
+const UP_VEC = new THREE.Vector3(0, 1, 0);
+function syncCrane() {
+  claw.position.copy(clawBody.position); // 見た目は物理ボディに追従
+  fingers.forEach((f, i) => { f.rotation.z = FINGER_CLOSED + (FINGER_OPEN - FINGER_CLOSED) * fingerOpen[i]; });
+  beam.position.set(0, RAIL_Y, clawPos.z);
+  trolley.position.set(clawPos.x, RAIL_Y - 0.05, clawPos.z);
+  // ロープはトロリーから実際のクロー位置へ張る (揺れると斜めになる)
+  _ropeTop.set(clawPos.x, RAIL_Y - 0.15, clawPos.z);
+  _ropeDir.set(clawBody.position.x, clawBody.position.y + 0.2, clawBody.position.z).sub(_ropeTop);
+  const len = Math.max(0.05, _ropeDir.length());
+  rope.scale.y = len;
+  rope.position.copy(_ropeTop).addScaledVector(_ropeDir, 0.5);
+  rope.quaternion.setFromUnitVectors(UP_VEC, _ropeDir.normalize());
+  ring.position.x = clawBody.position.x;
+  ring.position.z = clawBody.position.z;
+}
+
+/* ================= 景品 ================= */
+const PRIZE_COLORS = [0xff5fa2, 0x54c7ff, 0xffd94f, 0x7dff8a, 0xc08fff, 0xff8f54];
+const prizes = [];
+
+function makeCapsuleMesh(color) {
+  const g = new THREE.Group();
+  const top = new THREE.Mesh(
+    new THREE.SphereGeometry(0.33, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.05 })
+  );
+  const bottom = new THREE.Mesh(
+    new THREE.SphereGeometry(0.33, 20, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color: 0xf5f0ea, roughness: 0.35 })
+  );
+  g.add(top, bottom);
+  g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  return g;
+}
+function makeGiftMesh(color) {
+  const g = new THREE.Group();
+  const s = 0.52;
+  const bx = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), new THREE.MeshStandardMaterial({ color, roughness: 0.4 }));
+  const ribbonMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+  const r1 = new THREE.Mesh(new THREE.BoxGeometry(s + 0.02, s + 0.02, 0.1), ribbonMat);
+  const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.1, s + 0.02, s + 0.02), ribbonMat);
+  g.add(bx, r1, r2);
+  g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  return g;
+}
+
+function spawnPrize(x, y, z) {
+  const color = PRIZE_COLORS[Math.floor(Math.random() * PRIZE_COLORS.length)];
+  const isGift = Math.random() < 0.35;
+  const mesh = isGift ? makeGiftMesh(color) : makeCapsuleMesh(color);
+  scene.add(mesh);
+  const shape = isGift ? new CANNON.Box(new CANNON.Vec3(0.27, 0.27, 0.27)) : new CANNON.Sphere(0.33);
+  const body = new CANNON.Body({
+    mass: 0.5, material: matPrize, shape,
+    angularDamping: 0.6, linearDamping: 0.05,
+    collisionFilterGroup: G_PRIZE,
+    collisionFilterMask: G_STATIC | G_PRIZE | G_CLAW,
+  });
+  body.position.set(x, y, z);
+  body.quaternion.setFromEuler(Math.random() * 2, Math.random() * 2, Math.random() * 2);
+  world.addBody(body);
+  const p = { mesh, body, alive: true };
+  prizes.push(p);
+  return p;
+}
+function randomSpawnXZ() {
+  return {
+    x: -1.0 + Math.random() * 2.4,
+    z: -1.6 + Math.random() * 1.9,
+  };
+}
+for (let i = 0; i < PRIZE_COUNT; i++) {
+  const { x, z } = randomSpawnXZ();
+  spawnPrize(x, 0.6 + (i % 3) * 0.8, z);
+}
+
+function removePrize(p) {
+  p.alive = false;
+  world.removeBody(p.body);
+  scene.remove(p.mesh);
+  const i = prizes.indexOf(p);
+  if (i >= 0) prizes.splice(i, 1);
+}
+
+/* ================= サウンド ================= */
+let actx = null;
+function audio() {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function tone(freq, dur = 0.1, type = 'square', vol = 0.12, delay = 0) {
+  try {
+    const ctx = audio();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    const t0 = ctx.currentTime + delay;
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    o.connect(g).connect(ctx.destination);
+    o.start(t0); o.stop(t0 + dur);
+  } catch (e) { /* 音は無くてもゲームは続行 */ }
+}
+const sfx = {
+  press: () => tone(660, 0.07, 'square', 0.08),
+  grab: () => { tone(240, 0.12, 'sawtooth', 0.1); tone(180, 0.15, 'sawtooth', 0.08, 0.1); },
+  win: () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.16, 'triangle', 0.16, i * 0.12)); },
+  lose: () => { tone(330, 0.2, 'sine', 0.1); tone(247, 0.3, 'sine', 0.1, 0.18); },
+  coin: () => { tone(988, 0.08, 'square', 0.1); tone(1319, 0.15, 'square', 0.1, 0.08); },
+};
+
+/* ================= UI ================= */
+const $plays = document.getElementById('plays');
+const $wins = document.getElementById('wins');
+const $msg = document.getElementById('msg');
+const $hint = document.getElementById('hint');
+const btnX = document.getElementById('btnX');
+const btnZ = document.getElementById('btnZ');
+const btnCoin = document.getElementById('btnCoin');
+
+function updateHUD() {
+  $plays.textContent = String(plays).padStart(2, '0');
+  $wins.textContent = String(wins).padStart(2, '0');
+  btnCoin.classList.toggle('attention', plays === 0);
+}
+let msgTimer = 0;
+function showMsg(text, ms = 1400, isWin = false) {
+  $msg.textContent = text;
+  $msg.classList.toggle('win', isWin);
+  $msg.classList.add('show');
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => $msg.classList.remove('show'), ms);
+}
+function setHint(text) {
+  $hint.textContent = text;
+  $hint.style.display = text ? '' : 'none';
+}
+
+/* ================= ゲーム状態 ================= */
+// READY → MOVE_X → WAIT_Z → MOVE_Z → OPENING → DESCEND → GRAB → LIFT → RETURN → OPEN → WAIT → READY
+let state = 'READY';
+let stateTime = 0;
+let holdX = false, holdZ = false;
+let carried = null;        // 運搬中とみなしている景品 (演出用)
+let grabSfxDone = false;
+let justWon = false;
+
+function setState(s) {
+  state = s;
+  stateTime = 0;
+  btnX.disabled = !(s === 'READY' && plays > 0) && !(s === 'MOVE_X');
+  btnZ.disabled = !(s === 'WAIT_Z') && !(s === 'MOVE_Z');
+  if (s === 'READY') setHint(plays > 0 ? '→ ボタンで スタート!' : 'コインを いれてね!');
+  else if (s === 'WAIT_Z') setHint('↑ ボタンで オクへ!');
+  else setHint('');
+}
+
+function startMoveX() {
+  if (state !== 'READY' || plays <= 0) return;
+  plays--;
+  updateHUD();
+  sfx.press();
+  holdX = true;
+  setState('MOVE_X');
+}
+function endMoveX() {
+  holdX = false;
+  if (state === 'MOVE_X') { sfx.press(); setState('WAIT_Z'); }
+}
+function startMoveZ() {
+  if (state !== 'WAIT_Z') return;
+  sfx.press();
+  holdZ = true;
+  setState('MOVE_Z');
+}
+function endMoveZ() {
+  holdZ = false;
+  if (state === 'MOVE_Z') { sfx.press(); setState('OPENING'); }
+}
+function insertCoin() {
+  plays += 5;
+  updateHUD();
+  sfx.coin();
+  showMsg('CREDIT +5', 900);
+  if (state === 'READY') setState('READY');
+}
+
+function bindHold(el, onDown, onUp) {
+  el.addEventListener('pointerdown', e => { e.preventDefault(); el.setPointerCapture(e.pointerId); el.classList.add('pressed'); audio(); onDown(); });
+  const up = e => { e.preventDefault(); el.classList.remove('pressed'); onUp(); };
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+}
+bindHold(btnX, startMoveX, endMoveX);
+bindHold(btnZ, startMoveZ, endMoveZ);
+btnCoin.addEventListener('pointerdown', e => { e.preventDefault(); audio(); insertCoin(); });
+
+window.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (e.key === 'ArrowRight') startMoveX();
+  if (e.key === 'ArrowUp') startMoveZ();
+  if (e.key === 'c') insertCoin();
+});
+window.addEventListener('keyup', e => {
+  if (e.key === 'ArrowRight') endMoveX();
+  if (e.key === 'ArrowUp') endMoveZ();
+});
+
+/* ================= つかみ (完全物理) =================
+   判定は無し。閉じる途中で景品に触れている指はゆっくりとしか握り込めず、
+   持ち上がるかどうかは指のコライダーと景品の摩擦・形状だけで決まる。 */
+// 運搬中、景品がずり落ち続けている時だけ指を握り直す (瞬間的な揺れでは動かさない)
+let slipT = 0;
+function ratchetGrip(dt) {
+  let slipping = false;
+  for (const p of prizes) {
+    const b = p.body;
+    if (Math.hypot(b.position.x - clawBody.position.x, b.position.z - clawBody.position.z) < 0.5 &&
+        b.position.y < clawBody.position.y && b.position.y > clawBody.position.y - 1.2 &&
+        clawBody.velocity.y - b.velocity.y > 0.15) {
+      slipping = true;
+    }
+  }
+  slipT = slipping ? slipT + dt : 0;
+  if (slipT > 0.12) {
+    for (let i = 0; i < 3; i++) {
+      if (fingerDepth[i] < 0.02) {
+        fingerOpen[i] = Math.max(0, fingerOpen[i] - dt / (fingerTouched[i] ? 8.0 : 0.8));
+      }
+    }
+  }
+}
+
+function moveFingers(target, duration, dt) {
+  let done = true;
+  for (let i = 0; i < 3; i++) {
+    const d = target - fingerOpen[i];
+    const step = dt / duration;
+    if (Math.abs(d) <= step) fingerOpen[i] = target;
+    else { fingerOpen[i] += Math.sign(d) * step; done = false; }
+  }
+  return done;
+}
+
+/* ================= メインループ ================= */
+function moveToward(current, target, speed, dt) {
+  const d = target - current;
+  const step = speed * dt;
+  return Math.abs(d) <= step ? target : current + Math.sign(d) * step;
+}
+
+let last = performance.now();
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.max(0.001, Math.min(0.05, (now - last) / 1000));
+  last = now;
+  const t = now / 1000;
+  stateTime += dt;
+
+  /* --- 状態マシン --- */
+  switch (state) {
+    case 'MOVE_X':
+      if (holdX) clawPos.x = Math.min(X_MAX, clawPos.x + MOVE_SPEED * dt);
+      break;
+    case 'MOVE_Z':
+      if (holdZ) clawPos.z = Math.max(Z_MIN, clawPos.z - MOVE_SPEED * dt);
+      break;
+    case 'OPENING': // 降りる前にアームを開く
+      if (moveFingers(1, 0.45, dt) && stateTime > 0.55) setState('DESCEND');
+      break;
+    case 'DESCEND':
+      clawPos.y = moveToward(clawPos.y, CLAW_BOTTOM_Y, DROP_SPEED, dt);
+      // ロープがたるんで山の上で止まることもあるので、実体の落ち着きを待つ
+      if (clawPos.y === CLAW_BOTTOM_Y &&
+          (clawBody.position.y - CLAW_BOTTOM_Y < 0.25 || stateTime > 2.6)) {
+        grabSfxDone = false;
+        setState('GRAB');
+      }
+      break;
+    case 'GRAB': {
+      // 接触なし: 普通に閉じる / 浅い接触: ゆっくり回り込む / 深いめり込み: 停止
+      let allClosed = true;
+      for (let i = 0; i < 3; i++) {
+        if (fingerDepth[i] < 0.02) {
+          fingerOpen[i] = Math.max(0, fingerOpen[i] - dt / (fingerTouched[i] ? 8.0 : 0.8));
+        }
+        if (fingerOpen[i] > 0) allClosed = false;
+        if (fingerTouched[i] && !grabSfxDone) {
+          grabSfxDone = true;
+          sfx.grab();
+          if (navigator.vibrate) navigator.vibrate(40);
+        }
+      }
+      // 空振りなら閉じ切って終了、掴んでいれば少し馴染ませてから上昇
+      if ((allClosed && stateTime > 0.9) || stateTime > 1.6) setState('LIFT');
+      break;
+    }
+    case 'LIFT':
+      ratchetGrip(dt);
+      clawPos.y = moveToward(clawPos.y, CLAW_TOP_Y, LIFT_SPEED, dt);
+      if (clawPos.y === CLAW_TOP_Y &&
+          (CLAW_TOP_Y - clawBody.position.y < 0.3 || stateTime > 3.2)) {
+        carried = prizes.find(p =>
+          Math.hypot(p.body.position.x - clawBody.position.x, p.body.position.z - clawBody.position.z) < 0.55 &&
+          p.body.position.y > CLAW_TOP_Y - 1.4
+        ) || null;
+        setState('RETURN');
+      }
+      break;
+    case 'RETURN':
+      ratchetGrip(dt);
+      clawPos.x = moveToward(clawPos.x, HOME.x, RETURN_SPEED, dt);
+      clawPos.z = moveToward(clawPos.z, HOME.z, RETURN_SPEED, dt);
+      if (carried && carried.alive && carried.body.position.y < 1.1) {
+        carried = null;
+        showMsg('あっ…!', 900);
+        tone(200, 0.2, 'sine', 0.1);
+      }
+      if (clawPos.x === HOME.x && clawPos.z === HOME.z &&
+          (Math.hypot(clawBody.position.x - HOME.x, clawBody.position.z - HOME.z) < 0.3 || stateTime > 4.5)) {
+        setState('OPEN');
+      }
+      break;
+    case 'OPEN':
+      if (moveFingers(1, 0.35, dt) && stateTime > 0.6) setState('WAIT');
+      break;
+    case 'WAIT':
+      moveFingers(0, 0.5, dt); // 通常は閉じて待機
+      if (stateTime > 1.7) {
+        if (!justWon) { showMsg('ざんねん…', 1100); sfx.lose(); }
+        justWon = false;
+        carried = null;
+        setState('READY');
+      }
+      break;
+  }
+
+  /* --- 物理 --- */
+  updateClawShapes(); // 指の開閉をシェイプ配置に反映
+  applyRopeForce();   // ロープ (ばね) でクローを吊る
+  world.step(1 / 60, dt, 3);
+
+  // 指と景品の接触・めり込み深さを検出 (閉じ動作の制御に使う)
+  fingerTouched = [false, false, false];
+  fingerDepth = [0, 0, 0];
+  for (const eq of world.contacts) {
+    if (eq.bi === clawBody || eq.bj === clawBody) {
+      const shape = eq.bi === clawBody ? eq.si : eq.sj;
+      const other = eq.bi === clawBody ? eq.bj : eq.bi;
+      if (other.material === matPrize && shape.fingerIndex !== undefined) {
+        const i = shape.fingerIndex;
+        fingerTouched[i] = true;
+        // めり込み深さ: 接触点間ギャップの符号反転
+        _gap.copy(eq.bj.position); _gap.vadd(eq.rj, _gap);
+        _gap.vsub(eq.bi.position, _gap); _gap.vsub(eq.ri, _gap);
+        const d = -_gap.dot(eq.ni);
+        if (d > fingerDepth[i]) fingerDepth[i] = d;
+      }
+    }
+  }
+
+  for (const p of [...prizes]) {
+    p.mesh.position.copy(p.body.position);
+    p.mesh.quaternion.copy(p.body.quaternion);
+    // 落とし口に落ちた → GET
+    if (p.body.position.y < -0.8) {
+      if (p === carried) carried = null;
+      removePrize(p);
+      wins++;
+      justWon = true;
+      updateHUD();
+      showMsg('🎉 GET!! 🎉', 1800, true);
+      sfx.win();
+      if (navigator.vibrate) navigator.vibrate([60, 40, 120]);
+      setTimeout(() => {
+        const { x, z } = randomSpawnXZ();
+        spawnPrize(x, 3.4, z);
+      }, 1200);
+    }
+  }
+
+  /* --- 背景アニメ --- */
+  const phase = Math.floor(t * 4);
+  for (let i = 0; i < bulbs.length; i++) bulbs[i].material = bulbMats[(i + phase) % 3];
+  for (const s of signs) {
+    const p = s.userData.phase;
+    s.material.opacity = 0.82 + 0.18 * Math.sin(t * 9 + p);
+    if (Math.sin(t * 6.7 + p * 3.1) > 0.985) s.material.opacity *= 0.35;
+  }
+  for (let i = 0; i < ringDecos.length; i++) ringDecos[i].rotation.z = t * (0.3 + i * 0.15);
+  if (window.__stars) window.__stars.rotation.y = t * 0.012;
+
+  syncCrane();
+  renderer.render(scene, camera);
+}
+
+layout();
+updateHUD();
+setState('READY');
+syncCrane();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
