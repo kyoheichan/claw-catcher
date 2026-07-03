@@ -310,6 +310,8 @@ const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
 // 取りこぼし、景品が床をすり抜けるため Naive を使う (体数が少ないので十分速い)
 world.broadphase = new CANNON.NaiveBroadphase();
 world.solver.iterations = 20;
+// 山盛りの大量のシールは静止したら眠らせて計算量を抑える
+world.allowSleep = true;
 const matGround = new CANNON.Material('ground');
 const matPrize = new CANNON.Material('prize');
 // 接触を硬めにしてめり込みを抑える (刻みも 1/120s に細かくしている)
@@ -335,6 +337,10 @@ function staticBox(cx, cy, cz, sx, sy, sz) {
 /* ================= 共有マテリアル ================= */
 const darkMat = new THREE.MeshStandardMaterial({ color: 0x241238, roughness: 0.8 });
 const clawMetal = new THREE.MeshStandardMaterial({ color: 0xd8dce6, roughness: 0.25, metalness: 0.9 });
+const whitePlastic = new THREE.MeshStandardMaterial({ color: 0xf5f6fa, roughness: 0.28 });
+const acrylicMat = new THREE.MeshStandardMaterial({
+  color: 0xdfeaff, transparent: true, opacity: 0.4, roughness: 0.08, metalness: 0,
+});
 const glassMat = new THREE.MeshPhysicalMaterial({
   color: 0xbfe4ff, transmission: 0.92, transparent: true, opacity: 0.22,
   roughness: 0.05, metalness: 0, side: THREE.DoubleSide, depthWrite: false,
@@ -780,8 +786,20 @@ function makeFigureBoxMesh(color) {
   mesh.castShadow = mesh.receiveShadow = true;
   return mesh;
 }
-// 平べったいシール (山盛り用)
+// 平べったいシール (山盛り用)。数が多いのでジオメトリとマテリアルは色ごとに共有する
+const STICKER_GEO = new THREE.BoxGeometry(0.38, 0.06, 0.28);
+const stickerMatsCache = new Map();
 function makeStickerMesh(color) {
+  let mats = stickerMatsCache.get(color);
+  if (!mats) {
+    mats = buildStickerMats(color);
+    stickerMatsCache.set(color, mats);
+  }
+  const mesh = new THREE.Mesh(STICKER_GEO, mats);
+  mesh.castShadow = mesh.receiveShadow = true;
+  return mesh;
+}
+function buildStickerMats(color) {
   const acc = '#' + new THREE.Color(color).getHexString();
   const c = document.createElement('canvas'); c.width = 184; c.height = 136;
   const g = c.getContext('2d');
@@ -810,12 +828,7 @@ function makeStickerMesh(color) {
   const topMat = new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), roughness: 0.4 });
   const sideMat = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
   const backMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f6, roughness: 0.55 });
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(0.46, 0.07, 0.34),
-    [sideMat, sideMat, topMat, backMat, sideMat, sideMat]
-  );
-  mesh.castShadow = mesh.receiveShadow = true;
-  return mesh;
+  return [sideMat, sideMat, topMat, backMat, sideMat, sideMat];
 }
 
 /* ================= クロー (指) の共通形状 ================= */
@@ -848,20 +861,24 @@ function makeFinger() {
   return pivot;
 }
 
-/* ---- UFO9風アーム (板状アーム + 地面と平行な爪先) ---- */
-const UFO_ARM_LEN = 0.62, UFO_FOOT_LEN = 0.22, UFO_FOOT_TH = 0.03, UFO_ARM_W = 0.16;
+/* ---- UFO9風アーム (透明アクリルの平アーム + 地面と平行な白い爪先) ---- */
+const UFO_ARM_LEN = 0.62, UFO_FOOT_LEN = 0.22, UFO_FOOT_TH = 0.03, UFO_ARM_W = 0.24;
 
 function makeUfoFinger() {
   const pivot = new THREE.Group();
-  // 板状のアーム
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.045, UFO_ARM_LEN + 0.04, UFO_ARM_W), clawMetal);
+  // 白い付け根
+  const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.14, UFO_ARM_W * 0.8), whitePlastic);
+  shoulder.position.y = -0.04;
+  shoulder.castShadow = true;
+  pivot.add(shoulder);
+  // 透明アクリルの平アーム
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.035, UFO_ARM_LEN + 0.04, UFO_ARM_W), acrylicMat);
   arm.position.y = -UFO_ARM_LEN / 2;
-  arm.castShadow = true;
   pivot.add(arm);
-  // 先端の水平な爪 (開閉しても地面と平行のまま。持ち上げ時に景品が引っかかる)
+  // 先端の水平な白い爪 (開閉しても地面と平行のまま。持ち上げ時に景品が引っかかる)
   const foot = new THREE.Group();
   foot.position.y = -UFO_ARM_LEN;
-  const plate = new THREE.Mesh(new THREE.BoxGeometry(UFO_FOOT_LEN, UFO_FOOT_TH, UFO_ARM_W), clawMetal);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(UFO_FOOT_LEN, UFO_FOOT_TH, UFO_ARM_W), whitePlastic);
   plate.position.set(-UFO_FOOT_LEN / 2 + 0.02, -UFO_FOOT_TH / 2, 0);
   plate.castShadow = true;
   foot.add(plate);
@@ -1109,7 +1126,7 @@ function createMachine(cfg) {
     sbox(0, 0.11, 0.28, 1.5, 0.22, 1.1);
 
     // アクリルトレイ: 山が横に崩れ広がらないように囲う (前面が低いシールド)
-    const SHIELD_H = 0.5, TRAY_H = 0.65, TRAY_X = 1.0, TRAY_Z0 = -0.55;
+    const SHIELD_H = 0.55, TRAY_H = 1.3, TRAY_X = 1.0, TRAY_Z0 = -0.55;
     // 獲得口の前の透明シールド: 山をせき止める。越えて落ちたら GET
     glass(0, SHIELD_H / 2, EDGE_Z + 0.02, TRAY_X * 2 + 0.1, SHIELD_H, 0.04);
     sbox(0, SHIELD_H / 2, EDGE_Z + 0.02, TRAY_X * 2 + 0.1, SHIELD_H, 0.05);
@@ -1122,20 +1139,20 @@ function createMachine(cfg) {
     glass(0, TRAY_H / 2, TRAY_Z0, TRAY_X * 2 + 0.1, TRAY_H, 0.05);
     sbox(0, TRAY_H / 2, TRAY_Z0, TRAY_X * 2 + 0.1, TRAY_H, 0.06);
 
-    // シールの山 (下段ほど広く積む。シールドより高い部分が雪崩れて落ちる)
+    // シールの山 (7列×5行のグリッドを7段。上段は奥寄りに積み、シールド側へ雪崩れる)
     spawnPoints = [];
-    const LAYERS = [
-      { y: 0.30, xs: [-0.7, -0.35, 0, 0.35, 0.7], zs: [0.8, 0.45, 0.1, -0.25] },
-      { y: 0.50, xs: [-0.55, -0.18, 0.18, 0.55], zs: [0.7, 0.3, -0.1] },
-      { y: 0.72, xs: [-0.35, 0, 0.35], zs: [0.55, 0.15] },
-      { y: 0.94, xs: [-0.18, 0.18], zs: [0.55, 0.15] },
-    ];
-    for (const L of LAYERS) for (const x of L.xs) for (const z of L.zs) {
-      spawnPoints.push({ x, z, y: L.y });
+    {
+      const XS = [-0.78, -0.52, -0.26, 0, 0.26, 0.52, 0.78];
+      const ZS = [0.82, 0.54, 0.26, -0.02, -0.3];
+      for (let L = 0; L < 7; L++) {
+        const y = 0.25 + L * 0.16;
+        const zs = L < 4 ? ZS : ZS.slice(2); // 上3段は奥寄り
+        for (const x of XS) for (const z of zs) spawnPoints.push({ x, z, y });
+      }
     }
     prizeColors = [0xff5fa2, 0x54c7ff, 0xffd94f, 0x7dff8a, 0xc08fff];
     prizeTypes = [
-      { make: makeStickerMesh, shapes: () => [{ shape: new CANNON.Box(new CANNON.Vec3(0.23, 0.035, 0.17)) }] },
+      { make: makeStickerMesh, shapes: () => [{ shape: new CANNON.Box(new CANNON.Vec3(0.19, 0.03, 0.14)) }] },
     ];
   }
 
@@ -1149,19 +1166,41 @@ function createMachine(cfg) {
   const trolley = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.36), clawAccent);
   trolley.castShadow = true;
   scene.add(trolley);
-  // 吊り下げ部: 剛体式は金属ポール、ロープ式はひも
+  // 吊り下げ部: 剛体式はポール (UFO9風は白)、ロープ式はひも
   const ropeR = cfg.rigid ? 0.045 : 0.025;
-  const rope = new THREE.Mesh(new THREE.CylinderGeometry(ropeR, ropeR, 1, 8), cfg.rigid ? clawMetal : darkMat);
+  const rope = new THREE.Mesh(
+    new THREE.CylinderGeometry(ropeR, ropeR, 1, 8),
+    cfg.ufoArm ? whitePlastic : (cfg.rigid ? clawMetal : darkMat)
+  );
   scene.add(rope);
 
   const claw = new THREE.Group();
   scene.add(claw);
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.22, 0.26, 20), clawAccent);
-  hub.castShadow = true;
-  claw.add(hub);
-  const hubTop = new THREE.Mesh(new THREE.SphereGeometry(0.17, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), clawAccent);
-  hubTop.position.y = 0.13;
-  claw.add(hubTop);
+  if (cfg.ufoArm) {
+    // UFO9風の白い丸ボディ
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.26, 24, 16), whitePlastic);
+    shell.scale.set(1.5, 0.78, 1.15);
+    shell.castShadow = true;
+    claw.add(shell);
+    const topPanel = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, 0.06, 0.24),
+      new THREE.MeshStandardMaterial({ color: 0xe4e7ee, roughness: 0.4 })
+    );
+    topPanel.position.y = 0.17;
+    claw.add(topPanel);
+    // アクセントライン
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.013, 8, 40), clawAccent);
+    ring.rotation.x = Math.PI / 2;
+    ring.scale.set(1.3, 1.0, 1.0);
+    claw.add(ring);
+  } else {
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.22, 0.26, 20), clawAccent);
+    hub.castShadow = true;
+    claw.add(hub);
+    const hubTop = new THREE.Mesh(new THREE.SphereGeometry(0.17, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), clawAccent);
+    hubTop.position.y = 0.13;
+    claw.add(hubTop);
+  }
 
   // 開閉角: UFO9風アームは大きく開く
   const F_CLOSED = cfg.ufoArm ? 0.15 : FINGER_CLOSED;
@@ -1206,6 +1245,7 @@ function createMachine(cfg) {
       }
     }
   }
+  clawBody.allowSleep = false; // クローは常に駆動する
   clawBody.position.set(HOMEW.x, CLAW_TOP_Y, HOMEW.z);
   world.addBody(clawBody);
 
@@ -1325,9 +1365,10 @@ function createMachine(cfg) {
     scene.add(mesh);
     const body = new CANNON.Body({
       mass: cfg.prizeMass, material: matPrize,
-      angularDamping: 0.6, linearDamping: 0.05,
+      angularDamping: 0.6, linearDamping: cfg.prizeDamping ?? 0.05,
       collisionFilterGroup: G_PRIZE,
       collisionFilterMask: G_STATIC | G_PRIZE | G_CLAW,
+      sleepSpeedLimit: 0.25, sleepTimeLimit: 0.5,
     });
     for (const { shape, offset } of kind.shapes()) body.addShape(shape, offset);
     const sp = spawnPoints[spawnIndex];
@@ -1436,6 +1477,14 @@ function createMachine(cfg) {
   M.preStep = (dt) => {
     M.stateTime += dt;
     const clawPos = M.clawPos;
+    // クロー付近の眠っている景品を起こす (すくった時に支えを失った山が浮いたままにならないように)
+    if (cfg.wakeNearClaw && M.state !== 'READY' && M.state !== 'WAIT') {
+      for (const p of prizes) {
+        const b = p.body;
+        if (Math.abs(b.position.x - clawBody.position.x) < 1.05 &&
+            Math.abs(b.position.z - clawBody.position.z) < 1.05) b.wakeUp();
+      }
+    }
     switch (M.state) {
       case 'MOVE_X':
         if (M.holdX) clawPos.x = Math.min(XMAXW, clawPos.x + MOVE_SPEED * dt);
@@ -1602,9 +1651,9 @@ createMachine({
   alignedSpawn: true,
   frameColor: 0xf2f4f8,
   baseColor: 0xe9ecf2,
-  clawColor: 0xe8352c,
+  clawColor: 0xff4f9e, // UFOボディのアクセントライン (ピンク)
   neonColor: 0xff4b3a,
-  signText: 'UFO CATCHER 9',
+  signText: 'COSMO CATCHER',
   signGrad: [[0, '#ff4b3a'], [0.5, '#d21f14'], [1, '#ff4b3a']],
   bulbColors: [0xffffff, 0xff3b2e],
   canopy: 0xe8352c,
@@ -1626,9 +1675,11 @@ createMachine({
   getPanelX: 0,
   ringY: 1.12,
   catchY: -0.3, // シールドを越えて手前の溝に落ちたら GET
-  spawnY: 0.5, respawnY: 1.6,
-  prizeMass: 0.12,
+  spawnY: 0.5, respawnY: 1.9,
+  prizeMass: 0.08,
+  prizeDamping: 0.3, // 落下・滑りを穏やかに (リスポーンがシールドを飛び越えないように)
   alignedSpawn: true,
+  wakeNearClaw: true, // クロー付近の眠った景品を起こす
   frameColor: 0xffc23a,
   baseColor: 0x1e4a30,
   clawColor: 0x2fae6b,
@@ -1734,7 +1785,7 @@ function animate(now) {
   for (const m of machines) m.preStep(dt);
 
   /* --- 物理 (全筐体共有ワールド / 1/120s刻みでめり込みを抑える) --- */
-  world.step(1 / 120, dt, 6);
+  world.step(1 / 120, dt, 5);
 
   // 指と景品の接触・めり込み深さを検出 (閉じ動作と下降停止の制御に使う)
   for (const m of machines) {
