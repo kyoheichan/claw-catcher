@@ -627,78 +627,6 @@ function makeArcadeCabinet(x, z, rotY, hue, title) {
   scene.add(g);
 }
 
-// ネオンサインを作るヘルパー
-function neonSign(text, color, w, h) {
-  const c = document.createElement('canvas'); c.width = 512; c.height = 160;
-  const g = c.getContext('2d');
-  g.font = '900 84px sans-serif';
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.strokeStyle = color; g.lineWidth = 4;
-  g.shadowColor = color; g.shadowBlur = 26;
-  g.strokeText(text, 256, 82);
-  g.shadowBlur = 8;
-  g.fillStyle = '#fff';
-  g.fillText(text, 256, 82);
-  const t = new THREE.CanvasTexture(c);
-  const mat = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false });
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
-  scene.add(m);
-  return m;
-}
-const signs = [];
-signs.push(Object.assign(neonSign('GAME', '#ff2f8e', 3.4, 1.05), { userData: { phase: 0 } }));
-signs[0].position.set(-9, 4.6, -10.4);
-signs.push(Object.assign(neonSign('24H OPEN', '#29d3ff', 3.6, 1.1), { userData: { phase: 2.4 } }));
-signs[1].position.set(9, 4.0, -10.4);
-signs.push(Object.assign(neonSign('★ PRIZE ★', '#ffd23f', 3.2, 1.0), { userData: { phase: 4.1 } }));
-signs[2].position.set(0, 6.2, -10.4);
-signs.push(Object.assign(neonSign('COIN ¥100', '#7dff8a', 3.2, 1.0), { userData: { phase: 1.3 } }));
-signs[3].position.set(-13.4, 3.6, -2);
-signs[3].rotation.y = Math.PI / 2;
-
-// 背景のネオンリング
-const ringDecos = [];
-for (const [x, y, z, col, s, ry] of [
-  [-13.3, 2.2, 4, 0xff2f8e, 0.9, Math.PI / 2],
-  [13.3, 4.4, -4, 0x7dff8a, 0.7, Math.PI / 2],
-  [0, 4.9, -10.3, 0x29d3ff, 1.1, 0],
-]) {
-  const r = new THREE.Mesh(
-    new THREE.TorusGeometry(s, 0.06, 10, 40),
-    new THREE.MeshBasicMaterial({ color: col })
-  );
-  r.position.set(x, y, z);
-  r.rotation.y = ry;
-  scene.add(r);
-  ringDecos.push(r);
-}
-
-// 星屑 (浮遊ドット)
-let stars = null;
-{
-  const N = 220;
-  const pos = new Float32Array(N * 3);
-  const col = new Float32Array(N * 3);
-  const palette = [new THREE.Color(0xff2f8e), new THREE.Color(0x29d3ff), new THREE.Color(0xffd23f), new THREE.Color(0xffffff)];
-  for (let i = 0; i < N; i++) {
-    const r = 5 + Math.random() * 7;
-    const a = Math.random() * Math.PI * 2;
-    pos[i * 3] = Math.cos(a) * r;
-    pos[i * 3 + 1] = -1 + Math.random() * 7.5;
-    pos[i * 3 + 2] = Math.sin(a) * r - 1;
-    const c = palette[Math.floor(Math.random() * palette.length)];
-    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  stars = new THREE.Points(geo, new THREE.PointsMaterial({
-    size: 0.09, vertexColors: true, transparent: true, opacity: 0.9,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  }));
-  scene.add(stars);
-}
-
 /* ================= 景品メッシュ ================= */
 const PRIZE_COLORS = [0xff5fa2, 0x54c7ff, 0xffd94f, 0x7dff8a, 0xc08fff, 0xff8f54];
 
@@ -1036,30 +964,14 @@ function createMachine(cfg) {
       ] },
     ];
   } else {
-    // 橋渡し: 2本のバーの上にフィギュア箱。バーの隙間から落とすと GET
+    // 橋渡し: 平行な2本のバーだけを渡し、その上にフィギュア箱を置く。
+    // 棚などの平面は無く、下は素通しのピット (落ちたら GET)
     const BAR_Y = 0.95, BAR_R = 0.07, BAR_Z1 = 0.25, BAR_Z2 = 0.85;
-    const shelfMat = new THREE.MeshStandardMaterial({ color: 0xeef1f6, roughness: 0.6 });
-    const trimMat = new THREE.MeshStandardMaterial({ color: cfg.clawColor, roughness: 0.45 });
 
-    // 奥と手前の棚 (バーの高さに合わせたフラット面)
-    const backD = (BAR_Z1 - BAR_R - 0.02) + FIELD;                 // z: -FIELD .. BAR_Z1-BAR_R-0.02
-    const backC = (BAR_Z1 - BAR_R - 0.02 - FIELD) / 2;
-    box(shelfMat, 0, BAR_Y - 0.175, backC, FIELD * 2, 0.35, backD);
-    sbox(0, BAR_Y - 0.175, backC, FIELD * 2, 0.35, backD);
-    const frontD = FIELD - (BAR_Z2 + BAR_R + 0.02);                // z: BAR_Z2+BAR_R+0.02 .. FIELD
-    const frontC = (BAR_Z2 + BAR_R + 0.02 + FIELD) / 2;
-    box(shelfMat, 0, BAR_Y - 0.175, frontC, FIELD * 2, 0.35, frontD);
-    sbox(0, BAR_Y - 0.175, frontC, FIELD * 2, 0.35, frontD);
-    // 棚の縁の赤いトリム
-    box(trimMat, 0, BAR_Y + 0.01, BAR_Z1 - BAR_R - 0.05, FIELD * 2, 0.06, 0.06, false);
-    box(trimMat, 0, BAR_Y + 0.01, BAR_Z2 + BAR_R + 0.05, FIELD * 2, 0.06, 0.06, false);
-    // 棚下のスカートと落下シャフトの内壁 (見た目)
-    box(darkMat, 0, 0.28, backC, FIELD * 2, 1.0, backD, false);
-    box(darkMat, 0, 0.28, frontC, FIELD * 2, 1.0, frontD, false);
-    box(darkMat, 0, -0.55, BAR_Z1 - BAR_R, FIELD * 2, 2.4, 0.04, false);
-    box(darkMat, 0, -0.55, BAR_Z2 + BAR_R, FIELD * 2, 2.4, 0.04, false);
+    // ピットの底 (見た目のみ。物理の床は無い)
+    box(darkMat, 0, -0.2, 0, FIELD * 2, 0.04, FIELD * 2, false);
 
-    // 橋 (2本の金属バー)
+    // 橋 (2本の金属バー) と両端の支柱
     const barGeo = new THREE.CylinderGeometry(BAR_R, BAR_R, FIELD * 2 - 0.04, 16);
     for (const bz of [BAR_Z1, BAR_Z2]) {
       const bar = new THREE.Mesh(barGeo, clawMetal);
@@ -1067,6 +979,9 @@ function createMachine(cfg) {
       bar.position.set(0, BAR_Y, bz);
       bar.castShadow = true;
       group.add(bar);
+      for (const px of [-FIELD + 0.1, FIELD - 0.1]) {
+        box(darkMat, px, (BAR_Y - 0.18) / 2, bz, 0.08, BAR_Y + 0.18, 0.08);
+      }
     }
     const barBody = new CANNON.Body({ type: CANNON.Body.STATIC, material: matGround });
     const barQ = new CANNON.Quaternion().setFromEuler(0, 0, Math.PI / 2);
@@ -1074,15 +989,6 @@ function createMachine(cfg) {
     barBody.addShape(new CANNON.Cylinder(BAR_R, BAR_R, FIELD * 2 - 0.04, 12), new CANNON.Vec3(0, BAR_Y, BAR_Z2), barQ);
     barBody.position.set(O.x, 0, O.z);
     world.addBody(barBody);
-
-    // 奥の棚に飾りの在庫フィギュア箱 (静的)
-    for (const [bx, ry] of [[-1.25, 0.12], [0, -0.06], [1.25, 0.18]]) {
-      const deco = makeFigureBoxMesh([0x3ba7ff, 0xff5fa2, 0xff8f3a][(bx + 2) % 3 | 0]);
-      deco.position.set(bx, BAR_Y + 0.43, -1.45);
-      deco.rotation.set(Math.PI / 2, 0, ry); // 立てて印刷面を手前に
-      group.add(deco);
-      sbox(bx, BAR_Y + 0.43, -1.45, 0.56, 0.85, 0.35);
-    }
 
     spawnPoints = [
       { x: -0.8, z: (BAR_Z1 + BAR_Z2) / 2 },
@@ -1430,7 +1336,7 @@ function createMachine(cfg) {
       p.mesh.position.copy(p.body.position);
       p.mesh.quaternion.copy(p.body.quaternion);
       // 落とし口 / バーの隙間に落ちた → GET
-      if (p.body.position.y < -0.8) {
+      if (p.body.position.y < cfg.catchY) {
         if (p === M.carried) M.carried = null;
         removePrize(p);
         wins++;
@@ -1463,6 +1369,7 @@ createMachine({
   homeX: -1.45, homeZ: 1.45,
   getPanelX: -1.45,
   ringY: 0.02,
+  catchY: -0.8,
   spawnY: 0.6, respawnY: 3.2,
   prizeMass: 0.5,
   alignedSpawn: false,
@@ -1479,12 +1386,13 @@ createMachine({
 createMachine({
   origin: { x: MACHINE_X[1], z: 0 },
   type: 'bridge',
-  fingerYaws: [Math.PI / 2, -Math.PI / 2], // アームは手前/奥に開く (橋をまたぐ向き)
+  fingerYaws: [0, Math.PI], // アームは左右に開く
   clawBottomY: 1.62,
   openInPlace: true, // その場で開いて落とす
   homeX: -1.45, homeZ: 1.35,
   getPanelX: 0,
   ringY: 1.04,
+  catchY: -0.1, // ピットの底 (見た目) に触れるあたりで GET
   spawnY: 1.45, respawnY: 1.6,
   prizeMass: 0.6,
   alignedSpawn: true,
@@ -1614,14 +1522,6 @@ function animate(now) {
   for (const { bulbs, mats } of bulbSets) {
     for (let i = 0; i < bulbs.length; i++) bulbs[i].material = mats[(i + phase) % mats.length];
   }
-  for (const s of signs) {
-    const p = s.userData.phase;
-    s.material.opacity = 0.82 + 0.18 * Math.sin(t * 9 + p);
-    if (Math.sin(t * 6.7 + p * 3.1) > 0.985) s.material.opacity *= 0.35;
-  }
-  for (let i = 0; i < ringDecos.length; i++) ringDecos[i].rotation.z = t * (0.3 + i * 0.15);
-  if (stars) stars.rotation.y = t * 0.012;
-
   controls.update();
   renderer.render(scene, camera);
 }
