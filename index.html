@@ -286,13 +286,9 @@ world.broadphase = new CANNON.NaiveBroadphase();
 world.solver.iterations = 14;
 const matGround = new CANNON.Material('ground');
 const matPrize = new CANNON.Material('prize');
-const matClaw = new CANNON.Material('claw');
 world.addContactMaterial(new CANNON.ContactMaterial(matGround, matPrize, { friction: 0.45, restitution: 0.25 }));
 world.addContactMaterial(new CANNON.ContactMaterial(matPrize, matPrize, { friction: 0.4, restitution: 0.2 }));
-world.addContactMaterial(new CANNON.ContactMaterial(matClaw, matPrize, {
-  friction: 0.9, restitution: 0,
-  contactEquationStiffness: 1e7, contactEquationRelaxation: 4,
-}));
+// クローと景品の接触材質は筐体ごとに作る (cfg.gripPower で掴む力を調整できる)
 // 衝突グループ: 指は景品だけと衝突させる
 const G_STATIC = 1, G_PRIZE = 2, G_CLAW = 4;
 
@@ -824,6 +820,13 @@ function createMachine(cfg) {
   const frameMat = new THREE.MeshStandardMaterial({ color: cfg.frameColor, roughness: 0.35, metalness: 0.3 });
   const clawAccent = new THREE.MeshStandardMaterial({ color: cfg.clawColor, roughness: 0.35, metalness: 0.4 });
 
+  // クローの材質: gripPower = 爪と景品の摩擦。大きいほど強く掴める (0.2=弱い 〜 0.9=強い)
+  const matClawM = new CANNON.Material('claw');
+  world.addContactMaterial(new CANNON.ContactMaterial(matClawM, matPrize, {
+    friction: cfg.gripPower, restitution: 0,
+    contactEquationStiffness: 1e7, contactEquationRelaxation: 4,
+  }));
+
   // ローカル座標でメッシュを置く / 物理はワールド座標
   function box(mat, cx, cy, cz, sx, sy, sz, shadow = true) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
@@ -971,22 +974,26 @@ function createMachine(cfg) {
     // ピットの底 (見た目のみ。物理の床は無い)
     box(darkMat, 0, -0.2, 0, FIELD * 2, 0.04, FIELD * 2, false);
 
-    // 橋 (2本の金属バー) と両端の支柱
+    // バー: 景品を乗せる2本 + その少し外側・少し上の2本 (計4本) と両端の支柱
+    const BAR_Y2 = BAR_Y + 0.24, BAR_ZOUT = 0.32; // 外側バーの高さと離す距離
+    const BARS = [
+      [BAR_Y, BAR_Z1], [BAR_Y, BAR_Z2],
+      [BAR_Y2, BAR_Z1 - BAR_ZOUT], [BAR_Y2, BAR_Z2 + BAR_ZOUT],
+    ];
     const barGeo = new THREE.CylinderGeometry(BAR_R, BAR_R, FIELD * 2 - 0.04, 16);
-    for (const bz of [BAR_Z1, BAR_Z2]) {
+    const barBody = new CANNON.Body({ type: CANNON.Body.STATIC, material: matGround });
+    const barQ = new CANNON.Quaternion().setFromEuler(0, 0, Math.PI / 2);
+    for (const [by, bz] of BARS) {
       const bar = new THREE.Mesh(barGeo, clawMetal);
       bar.rotation.z = Math.PI / 2;
-      bar.position.set(0, BAR_Y, bz);
+      bar.position.set(0, by, bz);
       bar.castShadow = true;
       group.add(bar);
       for (const px of [-FIELD + 0.1, FIELD - 0.1]) {
-        box(darkMat, px, (BAR_Y - 0.18) / 2, bz, 0.08, BAR_Y + 0.18, 0.08);
+        box(darkMat, px, (by - 0.18) / 2, bz, 0.08, by + 0.18, 0.08);
       }
+      barBody.addShape(new CANNON.Cylinder(BAR_R, BAR_R, FIELD * 2 - 0.04, 12), new CANNON.Vec3(0, by, bz), barQ);
     }
-    const barBody = new CANNON.Body({ type: CANNON.Body.STATIC, material: matGround });
-    const barQ = new CANNON.Quaternion().setFromEuler(0, 0, Math.PI / 2);
-    barBody.addShape(new CANNON.Cylinder(BAR_R, BAR_R, FIELD * 2 - 0.04, 12), new CANNON.Vec3(0, BAR_Y, BAR_Z1), barQ);
-    barBody.addShape(new CANNON.Cylinder(BAR_R, BAR_R, FIELD * 2 - 0.04, 12), new CANNON.Vec3(0, BAR_Y, BAR_Z2), barQ);
     barBody.position.set(O.x, 0, O.z);
     world.addBody(barBody);
 
@@ -1010,7 +1017,9 @@ function createMachine(cfg) {
   const trolley = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.36), clawAccent);
   trolley.castShadow = true;
   scene.add(trolley);
-  const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 8), darkMat);
+  // 吊り下げ部: 剛体式は金属ポール、ロープ式はひも
+  const ropeR = cfg.rigid ? 0.045 : 0.025;
+  const rope = new THREE.Mesh(new THREE.CylinderGeometry(ropeR, ropeR, 1, 8), cfg.rigid ? clawMetal : darkMat);
   scene.add(rope);
 
   const claw = new THREE.Group();
@@ -1036,7 +1045,9 @@ function createMachine(cfg) {
   // クロー全体をひとつの動体 (ハブ+指ボックスの複合形状) にして、ロープで吊るす
   const HOMEW = { x: O.x + cfg.homeX, z: O.z + cfg.homeZ };
   const clawBody = new CANNON.Body({
-    mass: 3, material: matClaw,
+    mass: 3, material: matClawM,
+    // 剛体式 (rigid) はキネマティック: 押し返されず、目標位置へまっすぐ動く
+    type: cfg.rigid ? CANNON.Body.KINEMATIC : CANNON.Body.DYNAMIC,
     collisionFilterGroup: G_CLAW, collisionFilterMask: G_PRIZE,
     fixedRotation: true, linearDamping: 0.05,
   });
@@ -1099,10 +1110,22 @@ function createMachine(cfg) {
   }
   updateClawShapes();
 
-  // ロープ: ばね+減衰。引っ張りにしか効かない
+  // 吊り下げの駆動
   const _ropeF = new CANNON.Vec3();
   function applyRopeForce() {
     const b = clawBody;
+    if (cfg.rigid) {
+      // 剛体式: 目標位置へ速度追従 (揺れない・押し返されない)
+      const k = 10, vmax = 3.5;
+      let vx = (M.clawPos.x - b.position.x) * k;
+      let vy = (M.clawPos.y - b.position.y) * k;
+      let vz = (M.clawPos.z - b.position.z) * k;
+      const s = Math.hypot(vx, vy, vz);
+      if (s > vmax) { vx *= vmax / s; vy *= vmax / s; vz *= vmax / s; }
+      b.velocity.set(vx, vy, vz);
+      return;
+    }
+    // ロープ式: ばね+減衰。引っ張りにしか効かない
     const fx = (M.clawPos.x - b.position.x) * 90 - b.velocity.x * 12;
     const fz = (M.clawPos.z - b.position.z) * 90 - b.velocity.z * 12;
     const stretch = M.clawPos.y - b.position.y;
@@ -1281,7 +1304,7 @@ function createMachine(cfg) {
         break;
       }
       case 'LIFT':
-        ratchetGrip(dt);
+        if (cfg.regrip) ratchetGrip(dt); // 握り直し (パワーの弱い筐体では無効)
         clawPos.y = moveToward(clawPos.y, CLAW_TOP_Y, LIFT_SPEED, dt);
         if (clawPos.y === CLAW_TOP_Y &&
             (CLAW_TOP_Y - clawBody.position.y < 0.3 || M.stateTime > 3.2)) {
@@ -1366,6 +1389,9 @@ createMachine({
   fingerYaws: [0, Math.PI * 2 / 3, Math.PI * 4 / 3],
   clawBottomY: 0.88,
   openInPlace: false,
+  rigid: false,     // ロープ吊り (揺れる)
+  gripPower: 0.9,   // 掴む力 (爪の摩擦 0.2=弱い 〜 0.9=強い)
+  regrip: true,     // ずり落ち時の握り直し
   homeX: -1.45, homeZ: 1.45,
   getPanelX: -1.45,
   ringY: 0.02,
@@ -1389,6 +1415,9 @@ createMachine({
   fingerYaws: [0, Math.PI], // アームは左右に開く
   clawBottomY: 1.62,
   openInPlace: true, // その場で開いて落とす
+  rigid: true,      // 剛体アーム: まっすぐ降りて揺れない
+  gripPower: 0.3,   // 掴む力 弱め (爪の摩擦 0.2=弱い 〜 0.9=強い)
+  regrip: false,    // 握り直しなし
   homeX: -1.45, homeZ: 1.35,
   getPanelX: 0,
   ringY: 1.04,
