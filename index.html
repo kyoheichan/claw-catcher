@@ -173,6 +173,7 @@
 {
   "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
     "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
   }
 }
@@ -181,6 +182,7 @@
 <script type="module">
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 /* ================= 基本設定 ================= */
 const FIELD = 2.0;          // 内寸の半分
@@ -193,7 +195,6 @@ const HOLE = { x0: -2.0, x1: -0.9, z0: 0.9, z1: 2.0 };
 const HOME = { x: (HOLE.x0 + HOLE.x1) / 2, z: (HOLE.z0 + HOLE.z1) / 2 };
 const X_MAX = 1.6, Z_MIN = -1.6;
 const MOVE_SPEED = 1.15, DROP_SPEED = 1.4, LIFT_SPEED = 1.2, RETURN_SPEED = 1.1;
-const PRIZE_COUNT = 7;
 
 let plays = 5, wins = 0;
 
@@ -210,14 +211,25 @@ scene.background = new THREE.Color(0x0b0620);
 scene.fog = new THREE.Fog(0x0b0620, 11, 26);
 
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 60);
+camera.position.set(0, 5.4, 8.2);
+
+// ドラッグ / スワイプで筐体の周囲を回り込めるカメラ
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.55, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enablePan = false;
+controls.minDistance = 4.5;
+controls.maxDistance = 16;
+controls.maxPolarAngle = Math.PI * 0.55; // 床の下には回り込まない
+controls.update();
+
 function layout() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h);
   camera.aspect = w / h;
   const a = Math.max(0.55, Math.min(camera.aspect, 1.4));
-  camera.position.set(0, 5.4, 7.6 / a * (a < 1 ? 0.92 : 1));
   camera.fov = a < 1 ? Math.min(78, 55 / (a * 1.18)) : 55;
-  camera.lookAt(0, 1.55, 0);
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', layout);
@@ -337,11 +349,13 @@ glass(0, WALL_H / 2, -FIELD - 0.03, FIELD * 2, WALL_H, 0.06);
 glass(-FIELD - 0.03, WALL_H / 2, 0, 0.06, WALL_H, FIELD * 2);
 glass(FIELD + 0.03, WALL_H / 2, 0, 0.06, WALL_H, FIELD * 2);
 glass(0, WALL_H / 2, FIELD + 0.03, FIELD * 2, WALL_H, 0.06);
+glass(0, WALL_H + 0.03, 0, FIELD * 2, 0.06, FIELD * 2); // ガラス天井 (景品の飛び出し防止)
 // ガラス壁 (物理)
 staticBox(0, WALL_H / 2, -FIELD - 0.1, FIELD * 2 + 0.4, WALL_H, 0.2);
 staticBox(0, WALL_H / 2, FIELD + 0.1, FIELD * 2 + 0.4, WALL_H, 0.2);
 staticBox(-FIELD - 0.1, WALL_H / 2, 0, 0.2, WALL_H, FIELD * 2 + 0.4);
 staticBox(FIELD + 0.1, WALL_H / 2, 0, 0.2, WALL_H, FIELD * 2 + 0.4);
+staticBox(0, WALL_H + 0.13, 0, FIELD * 2 + 0.4, 0.2, FIELD * 2 + 0.4); // 天井 (物理)
 
 // 支柱と上部フレーム
 for (const [px, pz] of [[-FIELD, -FIELD], [FIELD, -FIELD], [-FIELD, FIELD], [FIELD, FIELD]]) {
@@ -690,34 +704,101 @@ function makeGiftMesh(color) {
   return g;
 }
 
-function spawnPrize(x, y, z) {
+function makeCanMesh(color) {
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.35 });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0xd8dce6, roughness: 0.25, metalness: 0.9 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.46, 20), bodyMat);
+  const stripe = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.265, 0.265, 0.14, 20),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 })
+  );
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.07, 20), capMat);
+  top.position.y = 0.265;
+  const bottom = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.22, 0.07, 20), capMat);
+  bottom.position.y = -0.265;
+  g.add(body, stripe, top, bottom);
+  g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  return g;
+}
+function makeBearMesh(color) {
+  const g = new THREE.Group();
+  const furMat = new THREE.MeshStandardMaterial({ color, roughness: 0.9 });
+  const muzzleMat = new THREE.MeshStandardMaterial({ color: 0xf7ead8, roughness: 0.9 });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.26, 18, 14), furMat);
+  body.position.y = -0.08;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 18, 14), furMat);
+  head.position.y = 0.26;
+  const snout = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 10), muzzleMat);
+  snout.position.set(0, 0.22, 0.15);
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), muzzleMat);
+  belly.position.set(0, -0.06, 0.16);
+  g.add(body, head, snout, belly);
+  const earGeo = new THREE.SphereGeometry(0.075, 10, 8);
+  const limbGeo = new THREE.SphereGeometry(0.09, 10, 8);
+  for (const s of [-1, 1]) {
+    const ear = new THREE.Mesh(earGeo, furMat);
+    ear.position.set(s * 0.13, 0.42, 0);
+    const arm = new THREE.Mesh(limbGeo, furMat);
+    arm.position.set(s * 0.24, 0.0, 0.06);
+    const leg = new THREE.Mesh(limbGeo, furMat);
+    leg.position.set(s * 0.15, -0.3, 0.1);
+    g.add(ear, arm, leg);
+  }
+  const eyeGeo = new THREE.SphereGeometry(0.025, 8, 6);
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x241238, roughness: 0.3 });
+  for (const s of [-1, 1]) {
+    const eye = new THREE.Mesh(eyeGeo, eyeMat);
+    eye.position.set(s * 0.07, 0.3, 0.17);
+    g.add(eye);
+  }
+  g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  return g;
+}
+
+// 景品の種類: カプセル / プレゼント箱 / 缶 / クマのぬいぐるみ
+const PRIZE_TYPES = [
+  { make: makeCapsuleMesh, shapes: () => [{ shape: new CANNON.Sphere(0.33) }] },
+  { make: makeGiftMesh, shapes: () => [{ shape: new CANNON.Box(new CANNON.Vec3(0.27, 0.27, 0.27)) }] },
+  { make: makeCanMesh, shapes: () => [{ shape: new CANNON.Cylinder(0.26, 0.26, 0.6, 12) }] },
+  { make: makeBearMesh, shapes: () => [
+    { shape: new CANNON.Sphere(0.27), offset: new CANNON.Vec3(0, -0.08, 0) },
+    { shape: new CANNON.Sphere(0.2), offset: new CANNON.Vec3(0, 0.26, 0) },
+  ] },
+];
+
+// 景品の初期位置 (3か所固定)
+const SPAWN_POINTS = [
+  { x: -0.1, z: -1.1 },
+  { x: 1.15, z: -0.35 },
+  { x: 0.35, z: 0.75 },
+];
+const PRIZE_COUNT = SPAWN_POINTS.length;
+
+function spawnPrize(spawnIndex, type = Math.floor(Math.random() * PRIZE_TYPES.length), y = 0.6) {
   const color = PRIZE_COLORS[Math.floor(Math.random() * PRIZE_COLORS.length)];
-  const isGift = Math.random() < 0.35;
-  const mesh = isGift ? makeGiftMesh(color) : makeCapsuleMesh(color);
+  const kind = PRIZE_TYPES[type];
+  const mesh = kind.make(color);
   scene.add(mesh);
-  const shape = isGift ? new CANNON.Box(new CANNON.Vec3(0.27, 0.27, 0.27)) : new CANNON.Sphere(0.33);
   const body = new CANNON.Body({
-    mass: 0.5, material: matPrize, shape,
+    mass: 0.5, material: matPrize,
     angularDamping: 0.6, linearDamping: 0.05,
     collisionFilterGroup: G_PRIZE,
     collisionFilterMask: G_STATIC | G_PRIZE | G_CLAW,
   });
-  body.position.set(x, y, z);
-  body.quaternion.setFromEuler(Math.random() * 2, Math.random() * 2, Math.random() * 2);
+  for (const { shape, offset } of kind.shapes()) body.addShape(shape, offset);
+  const sp = SPAWN_POINTS[spawnIndex];
+  body.position.set(sp.x, y, sp.z);
+  body.quaternion.setFromEuler(0, Math.random() * Math.PI * 2, 0);
   world.addBody(body);
-  const p = { mesh, body, alive: true };
+  const p = { mesh, body, alive: true, spawnIndex };
   prizes.push(p);
   return p;
 }
-function randomSpawnXZ() {
-  return {
-    x: -1.0 + Math.random() * 2.4,
-    z: -1.6 + Math.random() * 1.9,
-  };
-}
-for (let i = 0; i < PRIZE_COUNT; i++) {
-  const { x, z } = randomSpawnXZ();
-  spawnPrize(x, 0.6 + (i % 3) * 0.8, z);
+// 初期の3個は形がかぶらないように種類をシャッフルして配置
+{
+  const types = [0, 1, 2, 3].sort(() => Math.random() - 0.5).slice(0, PRIZE_COUNT);
+  for (let i = 0; i < PRIZE_COUNT; i++) spawnPrize(i, types[i]);
 }
 
 function removePrize(p) {
@@ -796,7 +877,7 @@ function setState(s) {
   stateTime = 0;
   btnX.disabled = !(s === 'READY' && plays > 0) && !(s === 'MOVE_X');
   btnZ.disabled = !(s === 'WAIT_Z') && !(s === 'MOVE_Z');
-  if (s === 'READY') setHint(plays > 0 ? '→ ボタンで スタート!' : 'コインを いれてね!');
+  if (s === 'READY') setHint(plays > 0 ? '→ ボタンで スタート! / ドラッグで カメラ' : 'コインを いれてね!');
   else if (s === 'WAIT_Z') setHint('↑ ボタンで オクへ!');
   else setHint('');
 }
@@ -1018,10 +1099,8 @@ function animate(now) {
       showMsg('🎉 GET!! 🎉', 1800, true);
       sfx.win();
       if (navigator.vibrate) navigator.vibrate([60, 40, 120]);
-      setTimeout(() => {
-        const { x, z } = randomSpawnXZ();
-        spawnPrize(x, 3.4, z);
-      }, 1200);
+      const slot = p.spawnIndex;
+      setTimeout(() => spawnPrize(slot, undefined, 3.2), 1200);
     }
   }
 
@@ -1037,6 +1116,7 @@ function animate(now) {
   if (window.__stars) window.__stars.rotation.y = t * 0.012;
 
   syncCrane();
+  controls.update();
   renderer.render(scene, camera);
 }
 
