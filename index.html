@@ -315,7 +315,7 @@ const matPrize = new CANNON.Material('prize');
 // 接触を硬めにしてめり込みを抑える (刻みも 1/120s に細かくしている)
 const CONTACT_STIFF = { contactEquationStiffness: 3e7, contactEquationRelaxation: 3 };
 world.addContactMaterial(new CANNON.ContactMaterial(matGround, matPrize, { friction: 0.45, restitution: 0.25, ...CONTACT_STIFF }));
-world.addContactMaterial(new CANNON.ContactMaterial(matPrize, matPrize, { friction: 0.4, restitution: 0.2, ...CONTACT_STIFF }));
+world.addContactMaterial(new CANNON.ContactMaterial(matPrize, matPrize, { friction: 0.5, restitution: 0.2, ...CONTACT_STIFF }));
 // クローと景品の接触材質は筐体ごとに作る (パワー Lv で掴む力を調整できる)
 // 衝突グループ: 指は景品だけと衝突させる
 const G_STATIC = 1, G_PRIZE = 2, G_CLAW = 4;
@@ -848,6 +848,28 @@ function makeFinger() {
   return pivot;
 }
 
+/* ---- UFO9風アーム (板状アーム + 地面と平行な爪先) ---- */
+const UFO_ARM_LEN = 0.62, UFO_FOOT_LEN = 0.22, UFO_FOOT_TH = 0.03, UFO_ARM_W = 0.16;
+
+function makeUfoFinger() {
+  const pivot = new THREE.Group();
+  // 板状のアーム
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.045, UFO_ARM_LEN + 0.04, UFO_ARM_W), clawMetal);
+  arm.position.y = -UFO_ARM_LEN / 2;
+  arm.castShadow = true;
+  pivot.add(arm);
+  // 先端の水平な爪 (開閉しても地面と平行のまま。持ち上げ時に景品が引っかかる)
+  const foot = new THREE.Group();
+  foot.position.y = -UFO_ARM_LEN;
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(UFO_FOOT_LEN, UFO_FOOT_TH, UFO_ARM_W), clawMetal);
+  plate.position.set(-UFO_FOOT_LEN / 2 + 0.02, -UFO_FOOT_TH / 2, 0);
+  plate.castShadow = true;
+  foot.add(plate);
+  pivot.add(foot);
+  pivot.userData.foot = foot;
+  return pivot;
+}
+
 // 各セグメントのピボット座標系での配置 (曲げ角は固定なので事前計算)
 const FINGER_SEGS = [];
 {
@@ -1083,18 +1105,34 @@ function createMachine(cfg) {
     box(darkMat, 0, -0.55, (EDGE_Z + FIELD) / 2, FIELD * 2, 0.04, FIELD - EDGE_Z, false);
     box(darkMat, 0, -0.25, EDGE_Z + 0.015, FIELD * 2, 0.5, 0.03, false); // 平台の前面
     // 中央の盛り上げ台 (シールが山型に積もる)
-    box(carpetMat, 0, 0.11, 0.15, 1.35, 0.22, 1.0);
-    sbox(0, 0.11, 0.15, 1.35, 0.22, 1.0);
+    box(carpetMat, 0, 0.11, 0.28, 1.5, 0.22, 1.1);
+    sbox(0, 0.11, 0.28, 1.5, 0.22, 1.1);
 
-    // シールの山 (下段→上段の順に積む)
-    spawnPoints = [
-      { x: -0.55, z: -0.15, y: 0.35 }, { x: 0.0, z: -0.3, y: 0.35 }, { x: 0.55, z: -0.15, y: 0.35 },
-      { x: -0.3, z: 0.25, y: 0.35 }, { x: 0.3, z: 0.25, y: 0.35 }, { x: 0.0, z: 0.6, y: 0.35 },
-      { x: -0.75, z: 0.5, y: 0.35 }, { x: 0.75, z: 0.5, y: 0.35 },
-      { x: -0.35, z: -0.05, y: 0.55 }, { x: 0.35, z: -0.05, y: 0.55 }, { x: 0.0, z: 0.35, y: 0.55 },
-      { x: -0.45, z: 0.45, y: 0.55 }, { x: 0.45, z: 0.45, y: 0.55 },
-      { x: -0.15, z: 0.15, y: 0.75 }, { x: 0.2, z: 0.3, y: 0.75 }, { x: 0.0, z: 0.0, y: 0.95 },
+    // アクリルトレイ: 山が横に崩れ広がらないように囲う (前面が低いシールド)
+    const SHIELD_H = 0.5, TRAY_H = 0.65, TRAY_X = 1.0, TRAY_Z0 = -0.55;
+    // 獲得口の前の透明シールド: 山をせき止める。越えて落ちたら GET
+    glass(0, SHIELD_H / 2, EDGE_Z + 0.02, TRAY_X * 2 + 0.1, SHIELD_H, 0.04);
+    sbox(0, SHIELD_H / 2, EDGE_Z + 0.02, TRAY_X * 2 + 0.1, SHIELD_H, 0.05);
+    box(frameMat, 0, SHIELD_H + 0.02, EDGE_Z + 0.02, TRAY_X * 2 + 0.1, 0.04, 0.06); // 上縁
+    // 左右と奥の透明壁
+    for (const sx of [-TRAY_X, TRAY_X]) {
+      glass(sx, TRAY_H / 2, (TRAY_Z0 + EDGE_Z) / 2, 0.05, TRAY_H, EDGE_Z - TRAY_Z0);
+      sbox(sx, TRAY_H / 2, (TRAY_Z0 + EDGE_Z) / 2, 0.06, TRAY_H, EDGE_Z - TRAY_Z0);
+    }
+    glass(0, TRAY_H / 2, TRAY_Z0, TRAY_X * 2 + 0.1, TRAY_H, 0.05);
+    sbox(0, TRAY_H / 2, TRAY_Z0, TRAY_X * 2 + 0.1, TRAY_H, 0.06);
+
+    // シールの山 (下段ほど広く積む。シールドより高い部分が雪崩れて落ちる)
+    spawnPoints = [];
+    const LAYERS = [
+      { y: 0.30, xs: [-0.7, -0.35, 0, 0.35, 0.7], zs: [0.8, 0.45, 0.1, -0.25] },
+      { y: 0.50, xs: [-0.55, -0.18, 0.18, 0.55], zs: [0.7, 0.3, -0.1] },
+      { y: 0.72, xs: [-0.35, 0, 0.35], zs: [0.55, 0.15] },
+      { y: 0.94, xs: [-0.18, 0.18], zs: [0.55, 0.15] },
     ];
+    for (const L of LAYERS) for (const x of L.xs) for (const z of L.zs) {
+      spawnPoints.push({ x, z, y: L.y });
+    }
     prizeColors = [0xff5fa2, 0x54c7ff, 0xffd94f, 0x7dff8a, 0xc08fff];
     prizeTypes = [
       { make: makeStickerMesh, shapes: () => [{ shape: new CANNON.Box(new CANNON.Vec3(0.23, 0.035, 0.17)) }] },
@@ -1125,11 +1163,15 @@ function createMachine(cfg) {
   hubTop.position.y = 0.13;
   claw.add(hubTop);
 
+  // 開閉角: UFO9風アームは大きく開く
+  const F_CLOSED = cfg.ufoArm ? 0.15 : FINGER_CLOSED;
+  const F_OPEN = cfg.ufoArm ? 1.15 : FINGER_OPEN;
+
   const fingers = [];
   for (let i = 0; i < N; i++) {
     const hinge = new THREE.Group();
     hinge.rotation.y = yaws[i];
-    const pivot = makeFinger();
+    const pivot = cfg.ufoArm ? makeUfoFinger() : makeFinger();
     pivot.position.set(0.16, -0.1, 0);
     hinge.add(pivot);
     claw.add(hinge);
@@ -1147,11 +1189,21 @@ function createMachine(cfg) {
   });
   clawBody.addShape(new CANNON.Sphere(0.2));
   for (let i = 0; i < N; i++) {
-    for (let k = 0; k < 3; k++) {
-      const [t, w] = FINGER_DIMS[k];
-      const sh = new CANNON.Box(new CANNON.Vec3(t / 2, (SEG_LEN + 0.02) / 2, w / 2));
-      sh.fingerIndex = i;
-      clawBody.addShape(sh);
+    if (cfg.ufoArm) {
+      const a = new CANNON.Box(new CANNON.Vec3(0.0225, (UFO_ARM_LEN + 0.04) / 2, UFO_ARM_W / 2));
+      a.fingerIndex = i;
+      clawBody.addShape(a);
+      const f = new CANNON.Box(new CANNON.Vec3(UFO_FOOT_LEN / 2, UFO_FOOT_TH / 2, UFO_ARM_W / 2));
+      f.fingerIndex = i;
+      f.isFoot = true; // 爪先は下降停止・閉じ止めの判定から除外 (山に潜り込んで景品の下に入る)
+      clawBody.addShape(f);
+    } else {
+      for (let k = 0; k < 3; k++) {
+        const [t, w] = FINGER_DIMS[k];
+        const sh = new CANNON.Box(new CANNON.Vec3(t / 2, (SEG_LEN + 0.02) / 2, w / 2));
+        sh.fingerIndex = i;
+        clawBody.addShape(sh);
+      }
     }
   }
   clawBody.position.set(HOMEW.x, CLAW_TOP_Y, HOMEW.z);
@@ -1188,17 +1240,33 @@ function createMachine(cfg) {
     for (let i = 0; i < N; i++) {
       const yaw = yaws[i];
       const cosYaw = Math.cos(yaw), sinYaw = Math.sin(yaw);
-      const theta = FINGER_CLOSED + (FINGER_OPEN - FINGER_CLOSED) * M.fingerOpen[i];
+      const theta = F_CLOSED + (F_OPEN - F_CLOSED) * M.fingerOpen[i];
       const ct = Math.cos(theta), st = Math.sin(theta);
       _qy.setFromAxisAngle(CANNON.Vec3.UNIT_Y, yaw);
-      for (let k = 0; k < 3; k++) {
-        const s = FINGER_SEGS[k];
-        const lx = 0.16 + s.cx * ct - s.cy * st;
-        const ly = -0.1 + s.cx * st + s.cy * ct;
-        const idx = 1 + i * 3 + k;
-        clawBody.shapeOffsets[idx].set(lx * cosYaw, ly, -lx * sinYaw);
-        _qz.setFromAxisAngle(CANNON.Vec3.UNIT_Z, theta + s.ang);
+      if (cfg.ufoArm) {
+        // アーム板
+        let idx = 1 + i * 2;
+        const ax = 0.16 + st * UFO_ARM_LEN / 2;
+        const ay = -0.1 - ct * UFO_ARM_LEN / 2;
+        clawBody.shapeOffsets[idx].set(ax * cosYaw, ay, -ax * sinYaw);
+        _qz.setFromAxisAngle(CANNON.Vec3.UNIT_Z, theta);
         _qy.mult(_qz, clawBody.shapeOrientations[idx]);
+        // 爪先 (常に地面と平行)
+        idx++;
+        const fx = 0.16 + st * UFO_ARM_LEN - UFO_FOOT_LEN / 2 + 0.02;
+        const fy = -0.1 - ct * UFO_ARM_LEN - UFO_FOOT_TH / 2;
+        clawBody.shapeOffsets[idx].set(fx * cosYaw, fy, -fx * sinYaw);
+        clawBody.shapeOrientations[idx].copy(_qy);
+      } else {
+        for (let k = 0; k < 3; k++) {
+          const s = FINGER_SEGS[k];
+          const lx = 0.16 + s.cx * ct - s.cy * st;
+          const ly = -0.1 + s.cx * st + s.cy * ct;
+          const idx = 1 + i * 3 + k;
+          clawBody.shapeOffsets[idx].set(lx * cosYaw, ly, -lx * sinYaw);
+          _qz.setFromAxisAngle(CANNON.Vec3.UNIT_Z, theta + s.ang);
+          _qy.mult(_qz, clawBody.shapeOrientations[idx]);
+        }
       }
     }
     clawBody.updateBoundingRadius();
@@ -1233,7 +1301,11 @@ function createMachine(cfg) {
   const UP_VEC = new THREE.Vector3(0, 1, 0);
   function syncCrane() {
     claw.position.copy(clawBody.position);
-    fingers.forEach((f, i) => { f.rotation.z = FINGER_CLOSED + (FINGER_OPEN - FINGER_CLOSED) * M.fingerOpen[i]; });
+    fingers.forEach((f, i) => {
+      const th = F_CLOSED + (F_OPEN - F_CLOSED) * M.fingerOpen[i];
+      f.rotation.z = th;
+      if (f.userData.foot) f.userData.foot.rotation.z = -th; // 爪先は水平を保つ
+    });
     beam.position.set(O.x, RAIL_Y, M.clawPos.z);
     trolley.position.set(M.clawPos.x, RAIL_Y - 0.05, M.clawPos.z);
     _ropeTop.set(M.clawPos.x, RAIL_Y - 0.15, M.clawPos.z);
@@ -1517,6 +1589,7 @@ createMachine({
   clawBottomY: 1.62,
   openInPlace: true, // その場で開いて落とす
   rigid: true,      // 剛体アーム: まっすぐ降りて揺れない
+  ufoArm: true,     // UFO9風: 板アーム + 地面と平行な爪先 (持ち上げ時に引っかかる)
   powerLv: 2,       // 掴む力 Lv1(弱)〜Lv5(強)。プレイ中に変更可
   regrip: false,    // 握り直しなし
   stopDepth: 0.035, // 下降中この深さまで景品に触れたら停止
@@ -1542,19 +1615,20 @@ createMachine({
   origin: { x: MACHINE_X[2], z: 0 },
   type: 'mound',
   fingerYaws: [0, Math.PI],
-  clawBottomY: 0.62,
+  clawBottomY: 0.7,
   openInPlace: true,
   rigid: true,      // 剛体アーム: まっすぐ降りて揺れない
+  ufoArm: true,     // UFO9風: 板アーム + 地面と平行な爪先 (すくって雪崩を起こす)
   powerLv: 1,       // 掴む力 最弱。プレイ中に変更可
   regrip: false,
   stopDepth: 0.012, // 触れたらすぐ下降停止 (橋渡しよりきびしい)
   homeX: -1.45, homeZ: 1.4,
   getPanelX: 0,
-  ringY: 0.02,
-  catchY: -0.3, // 手前の溝に落ちたら GET
-  spawnY: 0.5, respawnY: 1.5,
+  ringY: 1.12,
+  catchY: -0.3, // シールドを越えて手前の溝に落ちたら GET
+  spawnY: 0.5, respawnY: 1.6,
   prizeMass: 0.12,
-  alignedSpawn: false,
+  alignedSpawn: true,
   frameColor: 0xffc23a,
   baseColor: 0x1e4a30,
   clawColor: 0x2fae6b,
@@ -1673,7 +1747,7 @@ function animate(now) {
       if (eq.bi === m.clawBody || eq.bj === m.clawBody) {
         const shape = eq.bi === m.clawBody ? eq.si : eq.sj;
         const other = eq.bi === m.clawBody ? eq.bj : eq.bi;
-        if (other.material === matPrize) {
+        if (other.material === matPrize && !shape.isFoot) {
           _gap.copy(eq.bj.position); _gap.vadd(eq.rj, _gap);
           _gap.vsub(eq.bi.position, _gap); _gap.vsub(eq.ri, _gap);
           const d = -_gap.dot(eq.ni);
